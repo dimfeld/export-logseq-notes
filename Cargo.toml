@@ -9,8 +9,11 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.37"
 dotenv = "0.15.0"
+#edn-rs = "0.16.11"
+edn-rs = { git = "https://github.com/dimfeld/edn-rs", branch="string_escapes" }
 serde = "1.0.118"
 serde_json = "1.0.61"
+smallvec = "1.6.1"
 structopt = "0.3.21"
 syntect = "4.5.0"
 toml = "0.5.8"
