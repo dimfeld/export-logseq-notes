@@ -1,10 +1,12 @@
 use edn_rs::{Edn, EdnError};
+use fxhash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::mem;
 use std::str::FromStr;
 
+#[derive(Debug, Copy, Clone)]
 pub enum ViewType {
   Bullet,
   Numbered,
@@ -33,7 +35,7 @@ impl TryFrom<&str> for ViewType {
   }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Block {
   pub id: usize,
   pub title: Option<String>,
@@ -46,6 +48,7 @@ pub struct Block {
   pub open: bool,
   pub page: usize,
   pub order: usize,
+  pub refs: SmallVec<[usize; 4]>,
 
   /** An index into the graph's `emails` vector */
   pub create_email: usize,
@@ -56,14 +59,29 @@ pub struct Block {
 }
 
 pub struct Graph {
-  pub nodes: BTreeMap<usize, Block>,
+  pub blocks: BTreeMap<usize, Block>,
+  pub titles: FxHashMap<String, usize>,
   pub emails: Vec<String>,
 }
 
 impl Graph {
+  fn get_email_index(&mut self, email: String) -> usize {
+    let index = self.emails.iter().position(|s| s == &email);
+    match index {
+      Some(i) => i,
+      None => {
+        self.emails.push(email);
+        self.emails.len() - 1
+      }
+    }
+  }
+
   pub fn from_edn(mut s: &str) -> Result<Graph, EdnError> {
-    let mut nodes = BTreeMap::<usize, Block>::new();
-    let mut emails = Vec::<String>::new();
+    let mut graph = Graph {
+      blocks: BTreeMap::new(),
+      titles: FxHashMap::default(),
+      emails: Vec::<String>::new(),
+    };
 
     // Skip past the #datascript/DB tag since this parser throws
     // an error on it.
@@ -76,17 +94,6 @@ impl Graph {
     // This happens on image dimensions and the parser doesn't like it
     let processed = s.replace("##NaN", "0");
 
-    let mut get_email_index = |email: String| {
-      let index = emails.iter().position(|s| s == &email);
-      match index {
-        Some(i) => i,
-        None => {
-          emails.push(email);
-          emails.len() - 1
-        }
-      }
-    };
-
     let edn = Edn::from_str(processed.as_str())?;
     let datoms = match edn.get(":datoms") {
       Some(Edn::Vector(vec)) => vec.clone().to_vec(),
@@ -94,7 +101,7 @@ impl Graph {
       _ => return Err(EdnError::ParseEdn(String::from(":datoms was not a vector"))),
     };
 
-    let mut current_node: Block = Default::default();
+    let mut current_block: Block = Default::default();
 
     for datom_edn in datoms {
       let datom = match datom_edn {
@@ -107,14 +114,17 @@ impl Graph {
       };
 
       let entity = datom[0].to_uint().unwrap();
-      if entity != current_node.id {
-        // This assumes that all attributes for a node are together,
+      if entity != current_block.id {
+        // This assumes that all attributes for a block are contiguous in the data,
         // which so far is always true.
-        let adding_node = mem::take(&mut current_node);
-        nodes.insert(adding_node.id, adding_node);
+        let adding_block = mem::take(&mut current_block);
+        if let Some(title) = &adding_block.title {
+          graph.titles.insert(title.clone(), adding_block.id);
+        }
+        graph.blocks.insert(adding_block.id, adding_block);
       }
 
-      current_node.id = entity;
+      current_block.id = entity;
 
       let attr_item = &datom[1];
       let value = &datom[2];
@@ -130,27 +140,36 @@ impl Graph {
       };
 
       match attr.as_str() {
-        ":node/title" => current_node.title = Some(value.to_string()),
-        ":block/string" => current_node.string = value.to_string(),
-        ":block/uid" => current_node.uid = value.to_string(),
-        ":block/heading" => current_node.heading = value.to_uint().unwrap(),
+        ":node/title" => current_block.title = Some(value.to_string()),
+        ":block/string" => current_block.string = value.to_string(),
+        ":block/uid" => current_block.uid = value.to_string(),
+        ":block/heading" => current_block.heading = value.to_uint().unwrap(),
         ":children/view-type" => {
-          current_node.view_type = ViewType::try_from(value.to_string().as_str())?
+          current_block.view_type = ViewType::try_from(value.to_string().as_str())?
         }
-        ":block/parents" => current_node.parents.push(value.to_uint().unwrap()),
-        ":block/page" => current_node.page = value.to_uint().unwrap(),
-        ":block/open" => current_node.open = value.to_bool().unwrap_or(true),
-        ":block/order" => current_node.order = value.to_uint().unwrap(),
+        ":block/parents" => current_block.parents.push(value.to_uint().unwrap()),
+        ":block/page" => current_block.page = value.to_uint().unwrap(),
+        ":block/open" => current_block.open = value.to_bool().unwrap_or(true),
+        ":block/order" => current_block.order = value.to_uint().unwrap(),
+        ":block/refs" => current_block.refs.push(value.to_uint().unwrap()),
 
-        ":create/email" => current_node.create_email = get_email_index(value.to_string()),
-        ":edit/email" => current_node.edit_email = get_email_index(value.to_string()),
-        ":create/time" => current_node.create_time = value.to_uint().unwrap(),
-        ":edit/time" => current_node.edit_time = value.to_uint().unwrap(),
-        // Just ignore them for now
+        ":create/email" => current_block.create_email = graph.get_email_index(value.to_string()),
+        ":edit/email" => current_block.edit_email = graph.get_email_index(value.to_string()),
+        ":create/time" => current_block.create_time = value.to_uint().unwrap(),
+        ":edit/time" => current_block.edit_time = value.to_uint().unwrap(),
+        // Just ignore other attributes for now
         _ => {}
       }
     }
 
-    Ok(Graph { nodes, emails })
+    Ok(graph)
+  }
+
+  pub fn pages(&self) -> impl Iterator<Item = &Block> {
+    self
+      .blocks
+      .iter()
+      .filter(|(_, n)| n.title.is_some())
+      .map(|(_, n)| n)
   }
 }
