@@ -1,3 +1,4 @@
+use crate::parse_string;
 use crate::roam_edn::*;
 use anyhow::{anyhow, Result};
 use fxhash::FxHashMap;
@@ -9,8 +10,22 @@ pub struct Page<'a> {
   pub slug: String,
 }
 
-fn process_text<'a>(s: &'a str) -> Cow<'a, str> {
-  Cow::Borrowed(s)
+fn process_text<'a>(
+  graph: &Graph,
+  included_pages: &FxHashMap<usize, String>,
+  s: &'a str,
+) -> Cow<'a, str> {
+  // Given the text from a single block:
+  // 1. resolve links
+  // 2. look for special attributes like "Tags::",
+  // and so on
+  let parsed = parse_string::parse(s);
+  Cow::from(s)
+}
+
+/// Given a block containing a table, render that table into markdown format
+fn render_table(block: &Block) -> String {
+  unimplemented!();
 }
 
 fn gather_text<'a>(
@@ -24,8 +39,13 @@ fn gather_text<'a>(
 
   let mut output = Vec::with_capacity(block.children.len() + 1);
 
+  if block.string.contains("{{table}}") {
+    output.push(Cow::from(render_table(block)));
+    return output;
+  }
+
   if depth > 0 || !block.string.is_empty() {
-    output.push(process_text(&block.string));
+    output.push(process_text(graph, included_pages, &block.string));
   }
 
   let text = block
@@ -44,8 +64,7 @@ pub fn make_pages<'a>(graph: &'a Graph, filter_tag: &str) -> Result<Vec<Page<'a>
     .ok_or_else(|| anyhow!("Could not find page with filter name {}", filter_tag))?;
 
   let included_pages = graph
-    .pages()
-    .filter(|block| block.refs.iter().any(|&r| r == tag_node_id))
+    .blocks_with_reference(tag_node_id)
     // TODO Change title to slug
     .map(|block| (block.id, block.title.clone().unwrap()))
     .collect::<FxHashMap<_, _>>();

@@ -165,11 +165,18 @@ impl Graph {
     Ok(graph)
   }
 
+  fn block_iter<F: FnMut(&(&usize, &Block)) -> bool>(
+    &self,
+    filter: F,
+  ) -> impl Iterator<Item = &Block> {
+    self.blocks.iter().filter(filter).map(|(_, n)| n)
+  }
+
   pub fn pages(&self) -> impl Iterator<Item = &Block> {
-    self
-      .blocks
-      .iter()
-      .filter(|(_, n)| n.title.is_some())
-      .map(|(_, n)| n)
+    self.block_iter(|(_, n)| n.title.is_some())
+  }
+
+  pub fn blocks_with_reference(&self, reference: usize) -> impl Iterator<Item = &Block> {
+    self.block_iter(move |(_, n)| n.refs.iter().any(move |&r| r == reference))
   }
 }
