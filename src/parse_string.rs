@@ -5,21 +5,34 @@ use nom::{
   character::{is_newline, is_space},
   combinator::{all_consuming, eof, map, map_parser, not, peek, recognize, value},
   multi::{many0, many1, many_till},
-  sequence::{delimited, pair, preceded, terminated, tuple},
+  sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
   IResult,
 };
+
+// TODO Parse attributes
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expression<'a> {
   Text(&'a str),
-  Image { alt: &'a str, url: &'a str },
+  Image {
+    alt: &'a str,
+    url: &'a str,
+  },
   BraceDirective(&'a str),
   TripleBacktick(&'a str),
   SingleBacktick(&'a str),
   Hashtag(&'a str),
   Link(&'a str),
-  MarkdownLink { title: &'a str, url: &'a str },
+  MarkdownLink {
+    title: &'a str,
+    url: &'a str,
+  },
   BlockRef(&'a str),
+  // Use a box here to prevent rust complaining about infinite recursion
+  Attribute {
+    name: &'a str,
+    value: Vec<Expression<'a>>,
+  },
 }
 
 // fn ws(s: &str) -> IResult<&str, &str> {
@@ -88,10 +101,12 @@ fn single_backtick(input: &str) -> IResult<&str, &str> {
   delimited(char('`'), is_not("`"), char('`'))(input)
 }
 
+// Parse `((refrence))`
 fn block_ref(input: &str) -> IResult<&str, &str> {
   fenced("((", "))")(input)
 }
 
+/// Parse directives like `{{table}}` and `{{[[table]]}}`
 fn brace_directive(input: &str) -> IResult<&str, &str> {
   map(
     tuple((
@@ -108,12 +123,27 @@ fn brace_directive(input: &str) -> IResult<&str, &str> {
   )(input)
 }
 
+/// Parses `![alt](url)`
 fn image(input: &str) -> IResult<&str, (&str, &str)> {
   preceded(char('!'), markdown_link)(input)
 }
 
+/// Parses `Name:: Arbitrary [[text]]`
+fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
+  // Roam doesn't trim whitespace on the attribute name, so we don't either.
+  separated_pair(
+    is_not(":"),
+    tag("::"),
+    preceded(multispace0, many0(parse_one)),
+  )(input)
+}
+
 fn directive(input: &str) -> IResult<&str, Expression> {
   alt((
+    map(attribute, |(name, value)| Expression::Attribute {
+      name,
+      value,
+    }),
     map(triple_backtick, Expression::TripleBacktick),
     map(single_backtick, Expression::SingleBacktick),
     map(brace_directive, Expression::BraceDirective),
@@ -129,9 +159,10 @@ fn directive(input: &str) -> IResult<&str, Expression> {
 }
 
 fn parse_one(input: &str) -> IResult<&str, Expression> {
-  // I think a better solution would be to remove "text" from the parser
+  // TODO I think a better solution would be to remove "text" from the parser
   // and just step it through the string until it finds a directive. Then
   // put all the previous text into an Expression::Text and return the directive as well.
+  // This doesn't really handle the attribute case though.
   alt((
     directive,
     map(directive_headfakes, Expression::Text),

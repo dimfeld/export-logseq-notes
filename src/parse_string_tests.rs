@@ -189,6 +189,46 @@ fn markdown_link() {
 }
 
 #[test]
+fn attribute_simple() {
+  let input = "Source:: some blog";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::Attribute {
+      name: "Source",
+      value: vec![Expression::Text("some blog")]
+    }]
+  )
+}
+
+#[test]
+fn attribute_nospace() {
+  let input = "Source::some blog";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::Attribute {
+      name: "Source",
+      value: vec![Expression::Text("some blog")]
+    }]
+  )
+}
+
+#[test]
+fn attribute_complex() {
+  let input = " My Score:: too [[high]] to count";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::Attribute {
+      name: " My Score",
+      value: vec![
+        Expression::Text("too "),
+        Expression::Link("high"),
+        Expression::Text(" to count")
+      ]
+    }]
+  )
+}
+
+#[test]
 fn real_world_2() {
   let input = "Added support for switchable transition styles to [[svelte-zoomable]]";
   assert_eq!(
