@@ -111,11 +111,12 @@ fn brace_directive(input: &str) -> IResult<&str, &str> {
   map(
     tuple((
       tag("{{"),
-      map(take_until("}}"), |inner| {
+      map(take_until("}}"), |inner: &str| {
         // Try to parse a link from the brace contents. If these fail, just return the raw token.
+        let inner = inner.trim();
         all_consuming(link)(inner)
           .map(|x| x.1)
-          .unwrap_or_else(|_| inner.trim())
+          .unwrap_or_else(|_| inner)
       }),
       tag("}}"),
     )),
@@ -132,7 +133,7 @@ fn image(input: &str) -> IResult<&str, (&str, &str)> {
 fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
   // Roam doesn't trim whitespace on the attribute name, so we don't either.
   separated_pair(
-    is_not(":"),
+    is_not(":`"),
     tag("::"),
     preceded(multispace0, many0(parse_one)),
   )(input)

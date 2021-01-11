@@ -229,6 +229,36 @@ fn attribute_complex() {
 }
 
 #[test]
+fn attribute_backticks_1() {
+  // Do not parse it as an attribute if the :: is inside backticks
+  let input = " My Score ` :: too [[high]] to count`";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![
+      Expression::Text(" My Score "),
+      Expression::SingleBacktick(" :: too [[high]] to count")
+    ]
+  )
+}
+
+#[test]
+fn attribute_backticks_2() {
+  // This feels weird but it matches Roam's behavior.
+  // Understandable since it's difficult to parse otherwise
+  let input = "My `Score`:: too [[high]] to count";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![
+      Expression::Text("My "),
+      Expression::SingleBacktick("Score"),
+      Expression::Text(":: too "),
+      Expression::Link("high"),
+      Expression::Text(" to count")
+    ]
+  )
+}
+
+#[test]
 fn real_world_2() {
   let input = "Added support for switchable transition styles to [[svelte-zoomable]]";
   assert_eq!(
