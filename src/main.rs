@@ -1,5 +1,6 @@
 mod make_pages;
 mod parse_string;
+mod parse_string_tests;
 mod roam_edn;
 use anyhow::{anyhow, Context, Error, Result};
 use std::fs::File;
