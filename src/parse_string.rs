@@ -34,6 +34,11 @@ pub enum Expression<'a> {
     name: &'a str,
     value: Vec<Expression<'a>>,
   },
+  Bold(Vec<Expression<'a>>),
+  Italic(Vec<Expression<'a>>),
+  Strike(Vec<Expression<'a>>),
+  Highlight(Vec<Expression<'a>>),
+  HRule,
 }
 
 impl<'a> Expression<'a> {
@@ -89,6 +94,10 @@ fn fenced<'a>(start: &'a str, end: &'a str) -> impl FnMut(&'a str) -> IResult<&'
   map(tuple((tag(start), take_until(end), tag(end))), |x| x.1)
 }
 
+fn style<'a>(boundary: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<Expression<'a>>> {
+  map_parser(fenced(boundary, boundary), parse_inline)
+}
+
 fn link(input: &str) -> IResult<&str, &str> {
   fenced("[[", "]]")(input)
 }
@@ -119,6 +128,22 @@ fn single_backtick(input: &str) -> IResult<&str, &str> {
 // Parse `((refrence))`
 fn block_ref(input: &str) -> IResult<&str, &str> {
   fenced("((", "))")(input)
+}
+
+fn bold(input: &str) -> IResult<&str, Vec<Expression>> {
+  style("**")(input)
+}
+
+fn italic(input: &str) -> IResult<&str, Vec<Expression>> {
+  style("__")(input)
+}
+
+fn strike(input: &str) -> IResult<&str, Vec<Expression>> {
+  style("~~")(input)
+}
+
+fn highlight(input: &str) -> IResult<&str, Vec<Expression>> {
+  style("^^")(input)
 }
 
 /// Parse directives like `{{table}}` and `{{[[table]]}}`
@@ -157,6 +182,10 @@ fn directive(input: &str) -> IResult<&str, Expression> {
       title,
       url,
     }),
+    map(bold, Expression::Bold),
+    map(italic, Expression::Italic),
+    map(strike, Expression::Strike),
+    map(highlight, Expression::Highlight),
   ))(input)
 }
 
@@ -171,24 +200,23 @@ fn parse_one(input: &str) -> IResult<&str, Expression> {
   ))(input)
 }
 
+fn parse_inline(input: &str) -> IResult<&str, Vec<Expression>> {
+  many0(parse_one)(input)
+}
+
 /// Parses `Name:: Arbitrary [[text]]`
 fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
   // Roam doesn't trim whitespace on the attribute name, so we don't either.
-  separated_pair(
-    is_not(":`"),
-    tag("::"),
-    preceded(multispace0, many0(parse_one)),
-  )(input)
+  separated_pair(is_not(":`"), tag("::"), preceded(multispace0, parse_inline))(input)
 }
 
-pub fn parse<'a>(
-  input: &'a str,
-) -> Result<Vec<Expression<'a>>, nom::Err<nom::error::Error<&'a str>>> {
+pub fn parse(input: &str) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
   all_consuming(alt((
+    map(tag("---"), |_| vec![Expression::HRule]),
     map(attribute, |(name, value)| {
       vec![Expression::Attribute { name, value }]
     }),
-    many0(parse_one),
+    parse_inline,
   )))(input)
   .map(|(_, results)| results)
 }

@@ -155,6 +155,7 @@ impl Graph {
         (":children/view-type", Edn::Str(v)) => {
           current_block.view_type = ViewType::try_from(v.as_str())?
         }
+        (":block/children", value) => current_block.children.push(value.to_uint().unwrap()),
         (":block/parents", value) => current_block.parents.push(value.to_uint().unwrap()),
         (":block/page", value) => current_block.page = value.to_uint().unwrap(),
         (":block/open", value) => current_block.open = value.to_bool().unwrap_or(true),
@@ -168,7 +169,6 @@ impl Graph {
         // Just ignore other attributes for now
         // ":attrs/lookup"
         // ":entity/attrs" // On attribute blocks, list of attributes that occur in the graph
-        // ":block/children"
         // ":window/id"
         // ":window/filters" // Filters enabled on the page
         // ":log/id"  // This is some kind of timestamp on daily note pages.

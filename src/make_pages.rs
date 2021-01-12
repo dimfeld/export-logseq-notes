@@ -1,24 +1,26 @@
 use crate::parse_string::{parse, Expression};
 use crate::roam_edn::*;
+use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
 use fxhash::FxHashMap;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::fmt::Write as FmtWrite;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
-pub struct Page<'a, W: Write> {
+pub struct Page<'a, 'b, W: Write> {
   pub id: usize,
   pub title: String,
 
   writer: W,
   graph: &'a Graph,
   included_pages: &'a FxHashMap<String, (usize, String)>,
+  highlighter: &'b syntax_highlight::Highlighter,
 }
 
-impl<'a, W: Write> Page<'a, W> {
+impl<'a, 'b, W: Write> Page<'a, 'b, W> {
   pub fn write_line(&mut self, s: &str) -> Result<()> {
     if !s.is_empty() {
       self.writer.write_all("<li>".as_bytes())?;
@@ -88,50 +90,37 @@ impl<'a, W: Write> Page<'a, W> {
     format!("<table>\n{}</table>", rows)
   }
 
-  fn render_brace_directive(&self, block: &Block, s: &str) -> Cow<'a, str> {
-    let value = match s {
-      "table" => self.render_table(block),
-      _ => format!("<pre>{}</pre>", s),
+  fn render_brace_directive(&self, block: &Block, s: &str) -> (Cow<'a, str>, bool) {
+    let (value, render_children) = match s {
+      "table" => (self.render_table(block), false),
+      _ => (format!("<pre>{}</pre>", s), true),
     };
 
-    Cow::from(value)
+    (Cow::from(value), render_children)
   }
 
-  fn render_expression(&self, block: &Block, e: Expression<'a>) -> Result<(Cow<'a, str>, bool)> {
-    let rendered = match e {
-      Expression::Hashtag(s) => self.link_if_allowed(s),
-      Expression::Image { alt, url } => Cow::from(format!(
-        r##"<img title="{alt}" src="{url}" />"##,
-        alt = alt,
-        url = url
-      )),
-      Expression::Link(s) => self.link_if_allowed(s),
-      Expression::MarkdownLink { title, url } => Cow::from(format!(
-        r##"<a href="{url}">{title}</a>"##,
-        title = title,
-        url = url
-      )),
-      Expression::SingleBacktick(s) => Cow::from(format!("<code>{}</code>", s)),
-      // TODO Syntax highlighting
-      Expression::TripleBacktick(s) => Cow::from(format!("<pre><code>{}</code></pre>", s)),
-      Expression::Text(s) => Cow::from(s),
-      Expression::BlockRef(s) => Cow::from(self.render_block_uid(s)?),
-      Expression::BraceDirective(s) => self.render_brace_directive(block, s),
-      Expression::Attribute { .. } => Cow::from(""), // TODO
-    };
-
-    let render_children = match e {
-      Expression::BraceDirective("table") => true,
-      _ => true,
-    };
-
-    Ok((rendered, render_children))
+  fn render_style(
+    &self,
+    block: &Block,
+    tag: &str,
+    class: &str,
+    e: Vec<Expression<'a>>,
+  ) -> Result<(Cow<'a, str>, bool)> {
+    self.render_expressions(block, e).map(|(s, rc)| {
+      (
+        Cow::from(format!(
+          r##"<{tag} class="{class}">{contents}</{tag}>"##,
+          tag = tag,
+          class = class,
+          contents = s,
+        )),
+        rc,
+      )
+    })
   }
 
-  fn render_line(&self, block: &'a Block) -> Result<(String, bool)> {
-    parse(&block.string)
-      .map_err(|e| anyhow!("Parse Error: {:?}", e))?
-      .into_iter()
+  fn render_expressions(&self, block: &Block, e: Vec<Expression<'a>>) -> Result<(String, bool)> {
+    e.into_iter()
       .map(|e| self.render_expression(block, e))
       .fold(Ok((String::new(), true)), |acc, r| {
         acc.and_then(|(mut line, render_children)| {
@@ -143,23 +132,93 @@ impl<'a, W: Write> Page<'a, W> {
       })
   }
 
+  fn render_attribute(
+    &self,
+    block: &Block,
+    name: &str,
+    contents: Vec<Expression<'a>>,
+  ) -> Result<(Cow<'a, str>, bool)> {
+    self.render_expressions(block, contents).map(|(s, rc)| {
+      let output = format!(
+        r##"<span><strong class="rm-attr-ref">{name}:</strong>{s}</span> "##,
+        name = name,
+        s = s
+      );
+      (Cow::from(output), rc)
+    })
+  }
+
+  fn render_expression(&self, block: &Block, e: Expression<'a>) -> Result<(Cow<'a, str>, bool)> {
+    let (rendered, render_children) = match e {
+      Expression::Hashtag(s) => (self.link_if_allowed(s), true),
+      Expression::Image { alt, url } => (
+        Cow::from(format!(
+          r##"<img title="{alt}" src="{url}" />"##,
+          alt = alt,
+          url = url
+        )),
+        true,
+      ),
+      Expression::Link(s) => (self.link_if_allowed(s), true),
+      Expression::MarkdownLink { title, url } => (
+        Cow::from(format!(
+          r##"<a href="{url}">{title}</a>"##,
+          title = title,
+          url = url
+        )),
+        true,
+      ),
+      Expression::SingleBacktick(s) => (Cow::from(format!("<code>{}</code>", s)), true),
+      // TODO Syntax highlighting
+      Expression::TripleBacktick(s) => (
+        Cow::from(format!(
+          "<pre><code>{}</code></pre>",
+          self.highlighter.highlight(s)
+        )),
+        true,
+      ),
+      Expression::Bold(e) => self.render_style(block, "strong", "rm-bold", e)?,
+      Expression::Italic(e) => self.render_style(block, "em", "rm-italics", e)?,
+      Expression::Strike(e) => self.render_style(block, "del", "rm-strikethrough", e)?,
+      Expression::Highlight(e) => self.render_style(block, "span", "rm-highlight", e)?,
+      Expression::Text(s) => (Cow::from(s), true),
+      Expression::BlockRef(s) => (Cow::from(self.render_block_uid(s)?), true),
+      Expression::BraceDirective(s) => self.render_brace_directive(block, s),
+      Expression::HRule => (Cow::from(r##"<hr class="rm-hr" />"##), true),
+      Expression::Attribute { name, value } => self.render_attribute(block, name, value)?, // TODO
+    };
+
+    Ok((rendered, render_children))
+  }
+
+  fn render_line(&self, block: &'a Block) -> Result<(String, bool)> {
+    let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
+
+    self.render_expressions(block, parsed)
+  }
+
   fn render_block_and_children(&mut self, block_id: usize) -> Result<()> {
     let block = self.graph.blocks.get(&block_id).unwrap();
 
     let (rendered, render_children) = self.render_line(block)?;
     self.write_line(&rendered)?;
 
+    println!(
+      "Block {} renderchildren: {}, children {:?}",
+      block_id, render_children, block.children
+    );
+
     if render_children && !block.children.is_empty() {
       match block.view_type {
         ViewType::Document => self
           .writer
-          .write_all(r##"<ul class="list-document">\n"##.as_bytes())?,
+          .write_all("<li><ul class=\"list-document\">".as_bytes())?,
         ViewType::Bullet => self
           .writer
-          .write_all(r##"<ul class="list-bullet">\n"##.as_bytes())?,
+          .write_all("<li><ul class=\"list-bullet\">".as_bytes())?,
         ViewType::Numbered => self
           .writer
-          .write_all(r##"<ol class="list-numbered">\n"##.as_bytes())?,
+          .write_all("<li><ol class=\"list-numbered\">".as_bytes())?,
       }
 
       for child in &block.children {
@@ -167,9 +226,9 @@ impl<'a, W: Write> Page<'a, W> {
       }
 
       match block.view_type {
-        ViewType::Document => self.writer.write_all(r##"</ul>\n"##.as_bytes())?,
-        ViewType::Bullet => self.writer.write_all(r##"</ul>\n"##.as_bytes())?,
-        ViewType::Numbered => self.writer.write_all(r##"</ol>\n"##.as_bytes())?,
+        ViewType::Document => self.writer.write_all("</ul></li>\n".as_bytes())?,
+        ViewType::Bullet => self.writer.write_all("</ul></li>\n".as_bytes())?,
+        ViewType::Numbered => self.writer.write_all("</ol></li>\n".as_bytes())?,
       }
     }
 
@@ -193,8 +252,9 @@ fn title_to_slug(s: &str) -> String {
     .join("_")
 }
 
-pub fn make_pages<'a>(
+pub fn make_pages<'a, 'b>(
   graph: &'a Graph,
+  highlighter: &'b syntax_highlight::Highlighter,
   filter_tag: &str,
   output_dir: &Path,
 ) -> Result<Vec<(String, String)>> {
@@ -208,21 +268,20 @@ pub fn make_pages<'a>(
     .filter_map(|block| {
       let parsed = parse(&block.string).unwrap();
 
+      let page = graph.blocks.get(&block.page)?;
+
       let slug = match parsed.as_slice() {
         [Expression::Attribute { name, value }] => {
           if *name == filter_tag {
             value.iter().map(|e| e.plaintext()).join("")
           } else {
-            title_to_slug(block.title.as_ref().unwrap())
+            title_to_slug(page.title.as_ref().unwrap())
           }
         }
-        _ => title_to_slug(block.title.as_ref().unwrap()),
+        _ => title_to_slug(page.title.as_ref().unwrap()),
       };
 
-      graph
-        .blocks
-        .get(&block.page)
-        .map(|block| (block.title.clone().unwrap(), (block.id, slug)))
+      Some((page.title.clone().unwrap(), (page.id, slug)))
     })
     .collect::<FxHashMap<_, _>>();
 
@@ -230,7 +289,7 @@ pub fn make_pages<'a>(
     .par_iter()
     .map(|(title, (id, slug))| {
       let output_path = output_dir.join(slug);
-      let mut writer = std::fs::File::create(output_path)?;
+      let mut writer = BufWriter::new(std::fs::File::create(output_path)?);
 
       let mut page = Page {
         id: *id,
@@ -238,6 +297,7 @@ pub fn make_pages<'a>(
         graph: &graph,
         included_pages: &included_pages,
         writer: &mut writer,
+        highlighter,
       };
 
       page.render()?;
