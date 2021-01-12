@@ -61,6 +61,7 @@ pub struct Block {
 pub struct Graph {
   pub blocks: BTreeMap<usize, Block>,
   pub titles: FxHashMap<String, usize>,
+  pub blocks_by_uid: FxHashMap<String, usize>,
   pub emails: Vec<String>,
 }
 
@@ -80,6 +81,7 @@ impl Graph {
     let mut graph = Graph {
       blocks: BTreeMap::new(),
       titles: FxHashMap::default(),
+      blocks_by_uid: FxHashMap::default(),
       emails: Vec::<String>::new(),
     };
 
@@ -124,6 +126,10 @@ impl Graph {
         if let Some(title) = &adding_block.title {
           graph.titles.insert(title.clone(), adding_block.id);
         }
+
+        graph
+          .blocks_by_uid
+          .insert(adding_block.uid.clone(), adding_block.id);
         graph.blocks.insert(adding_block.id, adding_block);
       }
 
@@ -192,5 +198,12 @@ impl Graph {
 
   pub fn blocks_with_reference(&self, reference: usize) -> impl Iterator<Item = &Block> {
     self.block_iter(move |(_, n)| n.refs.iter().any(move |&r| r == reference))
+  }
+
+  pub fn block_from_uid(&self, uid: &str) -> Option<&Block> {
+    self
+      .blocks_by_uid
+      .get(uid)
+      .and_then(|id| self.blocks.get(id))
   }
 }

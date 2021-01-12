@@ -5,6 +5,7 @@ use fxhash::FxHashMap;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::borrow::Cow;
+use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::path::Path;
 
@@ -19,9 +20,12 @@ pub struct Page<'a, W: Write> {
 
 impl<'a, W: Write> Page<'a, W> {
   pub fn write_line(&mut self, s: &str) -> Result<()> {
-    self.writer.write_all("<li>".as_bytes())?;
-    self.writer.write_all(s.as_bytes())?;
-    self.writer.write_all("</li>\n".as_bytes())?;
+    if !s.is_empty() {
+      self.writer.write_all("<li>".as_bytes())?;
+      self.writer.write_all(s.as_bytes())?;
+      self.writer.write_all("</li>\n".as_bytes())?;
+    }
+
     Ok(())
   }
 
@@ -39,13 +43,62 @@ impl<'a, W: Write> Page<'a, W> {
       .unwrap_or_else(|| Cow::from(s))
   }
 
-  /// TODO
-  fn render_brace_directive(&self, s: &str) -> Cow<'a, str> {
-    Cow::from("")
+  fn render_block_uid(&self, s: &str) -> Result<String> {
+    self
+      .graph
+      .block_from_uid(s)
+      .map(|block| self.render_line(block).map(|(line, _)| line))
+      .unwrap_or_else(|| Ok(String::new()))
   }
 
-  fn render_expression(&self, e: Expression<'a>) -> Cow<'a, str> {
-    match e {
+  fn descend_table_child(&self, row: Vec<Cow<'a, str>>, id: usize) -> Vec<Vec<Cow<'a, str>>> {
+    self
+      .graph
+      .blocks
+      .get(&id)
+      .map(|block| {
+        let rendered = self.render_line(block).unwrap();
+        let mut row = row.clone();
+        row.push(Cow::from(rendered.0));
+        block
+          .children
+          .iter()
+          .flat_map(|&child| self.descend_table_child(row.clone(), child))
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_else(|| vec![row])
+  }
+
+  /// Given a block containing a table, render that table into markdown format
+  fn render_table(&self, block: &Block) -> String {
+    let rows = block
+      .children
+      .iter()
+      .flat_map(|id| self.descend_table_child(Vec::new(), *id))
+      .map(|row| {
+        let mut output = String::from("<tr>\n");
+        for cell in row {
+          writeln!(output, "<td>{}</td>", cell).unwrap();
+        }
+        writeln!(output, "</tr>").unwrap();
+        output
+      })
+      .collect::<String>();
+
+    format!("<table>\n{}</table>", rows)
+  }
+
+  fn render_brace_directive(&self, block: &Block, s: &str) -> Cow<'a, str> {
+    let value = match s {
+      "table" => self.render_table(block),
+      _ => format!("<pre>{}</pre>", s),
+    };
+
+    Cow::from(value)
+  }
+
+  fn render_expression(&self, block: &Block, e: Expression<'a>) -> Result<(Cow<'a, str>, bool)> {
+    let rendered = match e {
       Expression::Hashtag(s) => self.link_if_allowed(s),
       Expression::Image { alt, url } => Cow::from(format!(
         r##"<img title="{alt}" src="{url}" />"##,
@@ -62,29 +115,39 @@ impl<'a, W: Write> Page<'a, W> {
       // TODO Syntax highlighting
       Expression::TripleBacktick(s) => Cow::from(format!("<pre><code>{}</code></pre>", s)),
       Expression::Text(s) => Cow::from(s),
-      Expression::BlockRef(_) => Cow::from(""), // TODO
-      Expression::BraceDirective(s) => self.render_brace_directive(s),
+      Expression::BlockRef(s) => Cow::from(self.render_block_uid(s)?),
+      Expression::BraceDirective(s) => self.render_brace_directive(block, s),
       Expression::Attribute { .. } => Cow::from(""), // TODO
-    }
+    };
+
+    let render_children = match e {
+      Expression::BraceDirective("table") => true,
+      _ => true,
+    };
+
+    Ok((rendered, render_children))
   }
 
-  fn render_line(&mut self, block: &'a Block) -> Result<bool> {
-    let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
-
-    let line_values = parsed
+  fn render_line(&self, block: &'a Block) -> Result<(String, bool)> {
+    parse(&block.string)
+      .map_err(|e| anyhow!("Parse Error: {:?}", e))?
       .into_iter()
-      .map(|e| self.render_expression(e))
-      .join("");
-
-    self.write_line(&line_values)?;
-
-    Ok(true)
+      .map(|e| self.render_expression(block, e))
+      .fold(Ok((String::new(), true)), |acc, r| {
+        acc.and_then(|(mut line, render_children)| {
+          r.map(|r| {
+            line.push_str(&r.0);
+            (line, render_children && r.1)
+          })
+        })
+      })
   }
 
   fn render_block_and_children(&mut self, block_id: usize) -> Result<()> {
     let block = self.graph.blocks.get(&block_id).unwrap();
 
-    let render_children = self.render_line(block)?;
+    let (rendered, render_children) = self.render_line(block)?;
+    self.write_line(&rendered)?;
 
     if render_children && !block.children.is_empty() {
       match block.view_type {
@@ -116,11 +179,6 @@ impl<'a, W: Write> Page<'a, W> {
   pub fn render(&mut self) -> Result<()> {
     self.render_block_and_children(self.id)
   }
-}
-
-/// Given a block containing a table, render that table into markdown format
-fn render_table(block: &Block) -> String {
-  unimplemented!();
 }
 
 fn title_to_slug(s: &str) -> String {
