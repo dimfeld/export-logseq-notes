@@ -42,8 +42,20 @@ fn main() -> Result<()> {
     f.read_to_string(&mut raw_data)?;
 
     let graph = roam_edn::Graph::from_edn(&raw_data)?;
-
     let pages = make_pages(&graph, &config.filter)?;
+
+    for (id, block) in &graph.blocks {
+        if block.string.is_empty() {
+            continue;
+        }
+
+        let parse_result = match parse_string::parse(&block.string) {
+            Ok(e) => format!("Parsed: {:?}", e),
+            Err(e) => format!("Error: {:?}", e),
+        };
+
+        print!("Input: {}\n{}\n\n", block.string, parse_result);
+    }
 
     println!(
         "Found {page_count} pages and {node_count} nodes",

@@ -65,7 +65,7 @@ pub fn make_pages<'a>(graph: &'a Graph, filter_tag: &str) -> Result<Vec<Page<'a>
 
   let included_pages = graph
     .blocks_with_reference(tag_node_id)
-    // TODO Change title to slug
+    .map(|block| graph.blocks.get(&block.page).unwrap())
     .map(|block| (block.id, block.title.clone().unwrap()))
     .collect::<FxHashMap<_, _>>();
 

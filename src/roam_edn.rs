@@ -104,7 +104,7 @@ impl Graph {
     let mut current_block: Block = Default::default();
 
     for datom_edn in datoms {
-      let datom = match datom_edn {
+      let mut datom = match datom_edn {
         Edn::Vector(vec) => vec.to_vec(),
         _ => {
           return Err(EdnError::ParseEdn(String::from(
@@ -113,21 +113,23 @@ impl Graph {
         }
       };
 
+      let value = datom.remove(2);
+
       let entity = datom[0].to_uint().unwrap();
       if entity != current_block.id {
         // This assumes that all attributes for a block are contiguous in the data,
         // which so far is always true.
         let adding_block = mem::take(&mut current_block);
+
         if let Some(title) = &adding_block.title {
           graph.titles.insert(title.clone(), adding_block.id);
         }
         graph.blocks.insert(adding_block.id, adding_block);
       }
 
-      current_block.id = entity;
-
       let attr_item = &datom[1];
-      let value = &datom[2];
+
+      current_block.id = entity;
 
       let attr = match attr_item {
         Edn::Key(attr) => attr,
@@ -139,25 +141,37 @@ impl Graph {
         }
       };
 
-      match attr.as_str() {
-        ":node/title" => current_block.title = Some(value.to_string()),
-        ":block/string" => current_block.string = value.to_string(),
-        ":block/uid" => current_block.uid = value.to_string(),
-        ":block/heading" => current_block.heading = value.to_uint().unwrap(),
-        ":children/view-type" => {
-          current_block.view_type = ViewType::try_from(value.to_string().as_str())?
+      match (attr.as_str(), value) {
+        (":node/title", Edn::Str(v)) => current_block.title = Some(v),
+        (":block/string", Edn::Str(v)) => current_block.string = v,
+        (":block/uid", Edn::Str(v)) => current_block.uid = v,
+        (":block/heading", value) => current_block.heading = value.to_uint().unwrap(),
+        (":children/view-type", Edn::Str(v)) => {
+          current_block.view_type = ViewType::try_from(v.as_str())?
         }
-        ":block/parents" => current_block.parents.push(value.to_uint().unwrap()),
-        ":block/page" => current_block.page = value.to_uint().unwrap(),
-        ":block/open" => current_block.open = value.to_bool().unwrap_or(true),
-        ":block/order" => current_block.order = value.to_uint().unwrap(),
-        ":block/refs" => current_block.refs.push(value.to_uint().unwrap()),
+        (":block/parents", value) => current_block.parents.push(value.to_uint().unwrap()),
+        (":block/page", value) => current_block.page = value.to_uint().unwrap(),
+        (":block/open", value) => current_block.open = value.to_bool().unwrap_or(true),
+        (":block/order", value) => current_block.order = value.to_uint().unwrap(),
+        (":block/refs", value) => current_block.refs.push(value.to_uint().unwrap()),
 
-        ":create/email" => current_block.create_email = graph.get_email_index(value.to_string()),
-        ":edit/email" => current_block.edit_email = graph.get_email_index(value.to_string()),
-        ":create/time" => current_block.create_time = value.to_uint().unwrap(),
-        ":edit/time" => current_block.edit_time = value.to_uint().unwrap(),
+        (":create/email", Edn::Str(v)) => current_block.create_email = graph.get_email_index(v),
+        (":edit/email", Edn::Str(v)) => current_block.edit_email = graph.get_email_index(v),
+        (":create/time", value) => current_block.create_time = value.to_uint().unwrap(),
+        (":edit/time", value) => current_block.edit_time = value.to_uint().unwrap(),
         // Just ignore other attributes for now
+        // ":attrs/lookup"
+        // ":entity/attrs" // On attribute blocks, list of attributes that occur in the graph
+        // ":block/children"
+        // ":window/id"
+        // ":window/filters" // Filters enabled on the page
+        // ":log/id"  // This is some kind of timestamp on daily note pages.
+
+        // These show up on special entities that only define users in the graph
+        // ":user/color"
+        // ":user/email"
+        // ":user/settings"
+        // ":user/uid"
         _ => {}
       }
     }
