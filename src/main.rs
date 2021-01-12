@@ -3,6 +3,7 @@ mod parse_string;
 mod parse_string_tests;
 mod roam_edn;
 use anyhow::{anyhow, Context, Error, Result};
+use fxhash::FxHashSet;
 use std::fs::File;
 use std::io::Read;
 use structopt::StructOpt;
@@ -16,7 +17,7 @@ struct Config {
     file: String,
 
     #[structopt(short, long, env, default_value = "pages", help = "Output directory")]
-    output: String,
+    output: std::path::PathBuf,
 
     #[structopt(
         short,
@@ -31,10 +32,6 @@ struct Config {
     backlinks: bool,
 }
 
-fn title_to_slug(s: &str) -> String {
-    String::from(s)
-}
-
 fn main() -> Result<()> {
     let config = Config::from_args();
     let mut f = File::open(&config.file).with_context(|| format!("Opening {}", config.file))?;
@@ -42,25 +39,28 @@ fn main() -> Result<()> {
     f.read_to_string(&mut raw_data)?;
 
     let graph = roam_edn::Graph::from_edn(&raw_data)?;
-    let pages = make_pages(&graph, &config.filter)?;
+    let pages = make_pages(&graph, &config.filter, &config.output)?;
 
-    for (id, block) in &graph.blocks {
-        if block.string.is_empty() {
-            continue;
-        }
+    let mut block_count = 0;
+    // for (id, block) in &graph.blocks {
+    //     if block.string.is_empty() || exported_page_ids.get(&block.page).is_none() {
+    //         continue;
+    //     }
 
-        let parse_result = match parse_string::parse(&block.string) {
-            Ok(e) => format!("Parsed: {:?}", e),
-            Err(e) => format!("Error: {:?}", e),
-        };
+    //     block_count += 1;
 
-        print!("Input: {}\n{}\n\n", block.string, parse_result);
-    }
+    //     let parse_result = match parse_string::parse(&block.string) {
+    //         Ok(e) => format!("Parsed: {:?}", e),
+    //         Err(e) => format!("Error: {:?}", e),
+    //     };
+
+    //     print!("Input: {}\n{}\n\n", block.string, parse_result);
+    // }
 
     println!(
-        "Found {page_count} pages and {node_count} nodes",
+        "Found {page_count} pages and {block_count} nodes",
         page_count = pages.len(),
-        node_count = graph.blocks.len()
+        block_count = block_count
     );
 
     Ok(())

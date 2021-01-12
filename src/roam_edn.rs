@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::mem;
 use std::str::FromStr;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
   Bullet,
   Numbered,

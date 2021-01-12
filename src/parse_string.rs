@@ -8,6 +8,7 @@ use nom::{
   sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
   IResult,
 };
+use std::borrow::Cow;
 
 // TODO Parse attributes
 
@@ -33,6 +34,20 @@ pub enum Expression<'a> {
     name: &'a str,
     value: Vec<Expression<'a>>,
   },
+}
+
+impl<'a> Expression<'a> {
+  pub fn plaintext(&self) -> &'a str {
+    match self {
+      Expression::Text(s) => s,
+      Expression::SingleBacktick(s) => s,
+      Expression::Hashtag(s) => s,
+      Expression::Link(s) => s,
+      Expression::MarkdownLink { title, .. } => title,
+      Expression::BlockRef(s) => s,
+      _ => "",
+    }
+  }
 }
 
 // fn ws(s: &str) -> IResult<&str, &str> {
@@ -166,7 +181,9 @@ fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
   )(input)
 }
 
-pub fn parse(input: &str) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
+pub fn parse<'a>(
+  input: &'a str,
+) -> Result<Vec<Expression<'a>>, nom::Err<nom::error::Error<&'a str>>> {
   all_consuming(alt((
     map(attribute, |(name, value)| {
       vec![Expression::Attribute { name, value }]
