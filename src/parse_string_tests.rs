@@ -229,6 +229,18 @@ fn attribute_complex() {
 }
 
 #[test]
+fn attribute_extra_colons() {
+  let input = " My Score::: too :: high :: to count";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::Attribute {
+      name: " My Score",
+      value: vec![Expression::Text(": too :: high :: to count"),]
+    }]
+  )
+}
+
+#[test]
 fn attribute_backticks_1() {
   // Do not parse it as an attribute if the :: is inside backticks
   let input = " My Score ` :: too [[high]] to count`";

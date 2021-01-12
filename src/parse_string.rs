@@ -129,22 +129,8 @@ fn image(input: &str) -> IResult<&str, (&str, &str)> {
   preceded(char('!'), markdown_link)(input)
 }
 
-/// Parses `Name:: Arbitrary [[text]]`
-fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
-  // Roam doesn't trim whitespace on the attribute name, so we don't either.
-  separated_pair(
-    is_not(":`"),
-    tag("::"),
-    preceded(multispace0, many0(parse_one)),
-  )(input)
-}
-
 fn directive(input: &str) -> IResult<&str, Expression> {
   alt((
-    map(attribute, |(name, value)| Expression::Attribute {
-      name,
-      value,
-    }),
     map(triple_backtick, Expression::TripleBacktick),
     map(single_backtick, Expression::SingleBacktick),
     map(brace_directive, Expression::BraceDirective),
@@ -163,7 +149,6 @@ fn parse_one(input: &str) -> IResult<&str, Expression> {
   // TODO I think a better solution would be to remove "text" from the parser
   // and just step it through the string until it finds a directive. Then
   // put all the previous text into an Expression::Text and return the directive as well.
-  // This doesn't really handle the attribute case though.
   alt((
     directive,
     map(directive_headfakes, Expression::Text),
@@ -171,6 +156,22 @@ fn parse_one(input: &str) -> IResult<&str, Expression> {
   ))(input)
 }
 
+/// Parses `Name:: Arbitrary [[text]]`
+fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
+  // Roam doesn't trim whitespace on the attribute name, so we don't either.
+  separated_pair(
+    is_not(":`"),
+    tag("::"),
+    preceded(multispace0, many0(parse_one)),
+  )(input)
+}
+
 pub fn parse(input: &str) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
-  all_consuming(many0(parse_one))(input).map(|(_, results)| results)
+  all_consuming(alt((
+    map(attribute, |(name, value)| {
+      vec![Expression::Attribute { name, value }]
+    }),
+    many0(parse_one),
+  )))(input)
+  .map(|(_, results)| results)
 }
