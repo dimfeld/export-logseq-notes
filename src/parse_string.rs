@@ -86,7 +86,7 @@ fn text(input: &str) -> IResult<&str, &str> {
 }
 
 fn directive_headfakes(input: &str) -> IResult<&str, &str> {
-  recognize(preceded(one_of("{["), alt((is_not("{[!#"), eof))))(input)
+  recognize(preceded(one_of("!{["), alt((is_not("{[!#"), eof))))(input)
 }
 
 fn word(input: &str) -> IResult<&str, &str> {

@@ -295,6 +295,15 @@ fn attribute_backticks_2() {
 }
 
 #[test]
+fn exclamation_point() {
+  let input = "This is exciting!";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Text("This is exciting"), Text("!")]
+  );
+}
+
+#[test]
 fn real_world_2() {
   let input = "Added support for switchable transition styles to [[svelte-zoomable]]";
   assert_eq!(

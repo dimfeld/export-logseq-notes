@@ -15,6 +15,9 @@ pub struct Page<'a, 'b, W: Write> {
   pub id: usize,
   pub title: String,
 
+  filter_tag: &'a str,
+  depth: usize,
+
   writer: W,
   graph: &'a Graph,
   included_pages: &'a FxHashMap<String, (usize, String)>,
@@ -24,9 +27,18 @@ pub struct Page<'a, 'b, W: Write> {
 impl<'a, 'b, W: Write> Page<'a, 'b, W> {
   pub fn write_line(&mut self, s: &str) -> Result<()> {
     if !s.is_empty() {
+      self.write_depth()?;
       self.writer.write_all("<li>".as_bytes())?;
       self.writer.write_all(s.as_bytes())?;
       self.writer.write_all("</li>\n".as_bytes())?;
+    }
+
+    Ok(())
+  }
+
+  fn write_depth(&mut self) -> Result<()> {
+    for i in 0..self.depth {
+      self.writer.write_all("  ".as_bytes())?;
     }
 
     Ok(())
@@ -47,6 +59,11 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
   }
 
   fn hashtag(&self, s: &'a str, dot: bool) -> Cow<'a, str> {
+    if s == self.filter_tag {
+      // Don't render the export tag
+      return Cow::from("");
+    }
+
     let anchor = self.link_if_allowed(s);
     if dot {
       Cow::from(format!(
@@ -152,6 +169,10 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     name: &str,
     contents: Vec<Expression<'a>>,
   ) -> Result<(Cow<'a, str>, bool)> {
+    if name == self.filter_tag {
+      return Ok((Cow::from(""), true));
+    }
+
     self.render_expressions(block, contents).map(|(s, rc)| {
       let output = format!(
         r##"<span><strong class="rm-attr-ref">{name}:</strong>{s}</span> "##,
@@ -231,6 +252,45 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     self.render_expressions(block, parsed)
   }
 
+  fn render_view_type_start(&mut self, view_type: ViewType, write_li: bool) -> Result<()> {
+    if write_li {
+      self.write_depth()?;
+      self.writer.write_all("<li>".as_bytes())?;
+    }
+
+    match view_type {
+      ViewType::Document => self
+        .writer
+        .write_all("<ul class=\"list-document\">\n".as_bytes())?,
+      ViewType::Bullet => self
+        .writer
+        .write_all("<ul class=\"list-bullet\">\n".as_bytes())?,
+      ViewType::Numbered => self
+        .writer
+        .write_all("<ol class=\"list-numbered\">\n".as_bytes())?,
+    }
+
+    Ok(())
+  }
+
+  fn render_view_type_end(&mut self, view_type: ViewType, write_li: bool) -> Result<()> {
+    self.write_depth()?;
+
+    match view_type {
+      ViewType::Document => self.writer.write_all("</ul>".as_bytes())?,
+      ViewType::Bullet => self.writer.write_all("</ul>".as_bytes())?,
+      ViewType::Numbered => self.writer.write_all("</ol>".as_bytes())?,
+    }
+
+    if write_li {
+      self.writer.write_all("</li>\n".as_bytes())?;
+    } else {
+      self.writer.write_all("\n".as_bytes())?;
+    }
+
+    Ok(())
+  }
+
   fn render_block_and_children(&mut self, block_id: usize) -> Result<()> {
     let block = self.graph.blocks.get(&block_id).unwrap();
 
@@ -243,27 +303,16 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     );
 
     if render_children && !block.children.is_empty() {
-      match block.view_type {
-        ViewType::Document => self
-          .writer
-          .write_all("<li><ul class=\"list-document\">".as_bytes())?,
-        ViewType::Bullet => self
-          .writer
-          .write_all("<li><ul class=\"list-bullet\">".as_bytes())?,
-        ViewType::Numbered => self
-          .writer
-          .write_all("<li><ol class=\"list-numbered\">".as_bytes())?,
-      }
+      let render_li = self.depth > 0;
+      self.render_view_type_start(block.view_type, render_li)?;
 
+      self.depth += 1;
       for child in &block.children {
         self.render_block_and_children(*child)?;
       }
+      self.depth -= 1;
 
-      match block.view_type {
-        ViewType::Document => self.writer.write_all("</ul></li>\n".as_bytes())?,
-        ViewType::Bullet => self.writer.write_all("</ul></li>\n".as_bytes())?,
-        ViewType::Numbered => self.writer.write_all("</ol></li>\n".as_bytes())?,
-      }
+      self.render_view_type_end(block.view_type, render_li)?;
     }
 
     Ok(())
@@ -329,6 +378,8 @@ pub fn make_pages<'a, 'b>(
         id: *id,
         title: title.clone(),
         graph: &graph,
+        depth: 0,
+        filter_tag,
         included_pages: &included_pages,
         writer: &mut writer,
         highlighter,
