@@ -326,7 +326,9 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     }
 
     if render_li {
-      self.write_depth()?;
+      if render_children {
+        self.write_depth()?;
+      }
       self.writer.write_all("</li>".as_bytes())?;
     }
     self.writer.write_all("\n".as_bytes())?;
