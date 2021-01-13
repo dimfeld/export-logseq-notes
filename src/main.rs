@@ -1,3 +1,4 @@
+mod html;
 mod make_pages;
 mod parse_string;
 mod parse_string_tests;

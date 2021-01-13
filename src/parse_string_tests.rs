@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::parse_string::*;
+use crate::parse_string::{Expression::*, *};
 
 #[test]
 fn word() {
@@ -37,22 +37,40 @@ fn link() {
 #[test]
 fn hashtag_simple() {
   let input = "#tag";
-  assert_eq!(parse(input).unwrap(), vec![Expression::Hashtag("tag")])
+  assert_eq!(parse(input).unwrap(), vec![Hashtag("tag", false)])
 }
 
 #[test]
 fn hashtag_with_link() {
   let input = "#[[a tag]]";
-  assert_eq!(parse(input).unwrap(), vec![Expression::Hashtag("a tag")])
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::Hashtag("a tag", false)]
+  )
 }
 
 #[test]
-fn simple_brace() {
-  let input = "{{ table }}";
+fn hashtag_with_dot() {
+  let input = "#.tag";
   assert_eq!(
     parse(input).unwrap(),
-    vec![Expression::BraceDirective("table")]
+    vec![Expression::Hashtag("tag", true)]
   )
+}
+
+#[test]
+fn other_brace() {
+  let input = "{{ something-else }}";
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::BraceDirective("something-else")]
+  )
+}
+
+#[test]
+fn table_brace() {
+  let input = "{{ table }}";
+  assert_eq!(parse(input).unwrap(), vec![Table])
 }
 
 #[test]
@@ -72,11 +90,17 @@ fn link_with_enclosed_bracket() {
 }
 
 #[test]
-fn link_brace() {
+fn table_link_brace() {
   let input = "{{[[table]]}}";
+  assert_eq!(parse(input).unwrap(), vec![Table])
+}
+
+#[test]
+fn other_link_brace() {
+  let input = "{{[[something-else]]}}";
   assert_eq!(
     parse(input).unwrap(),
-    vec![Expression::BraceDirective("table")]
+    vec![BraceDirective("something-else")]
   )
 }
 
@@ -301,8 +325,9 @@ fn real_world_4() {
   assert_eq!(
     parse(input).unwrap(),
     vec![
-      Expression::Text("**Algorithm - Difference Engine** "),
-      Expression::Hashtag("roam/templates"),
+      Bold(vec![Text("Algorithm - Difference Engine")]),
+      Text(" "),
+      Hashtag("roam/templates", false),
     ]
   )
 }

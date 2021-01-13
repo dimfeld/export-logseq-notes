@@ -3,7 +3,7 @@ use nom::{
   bytes::complete::{is_a, is_not, tag, take_until, take_while1},
   character::complete::{anychar, char, line_ending, multispace0, one_of},
   character::{is_newline, is_space},
-  combinator::{all_consuming, eof, map, map_parser, not, peek, recognize, value},
+  combinator::{all_consuming, eof, map, map_parser, not, opt, peek, recognize, value},
   multi::{many0, many1, many_till},
   sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
   IResult,
@@ -20,9 +20,12 @@ pub enum Expression<'a> {
     url: &'a str,
   },
   BraceDirective(&'a str),
+  Table,
+  PageEmbed(&'a str),
+  BlockEmbed(&'a str),
   TripleBacktick(&'a str),
   SingleBacktick(&'a str),
-  Hashtag(&'a str),
+  Hashtag(&'a str, bool),
   Link(&'a str),
   MarkdownLink {
     title: &'a str,
@@ -46,7 +49,7 @@ impl<'a> Expression<'a> {
     match self {
       Expression::Text(s) => s,
       Expression::SingleBacktick(s) => s,
-      Expression::Hashtag(s) => s,
+      Expression::Hashtag(s, _) => s,
       Expression::Link(s) => s,
       Expression::MarkdownLink { title, .. } => title,
       Expression::BlockRef(s) => s,
@@ -113,8 +116,15 @@ fn link_or_word(input: &str) -> IResult<&str, &str> {
   alt((link, word))(input)
 }
 
-fn hashtag(input: &str) -> IResult<&str, &str> {
-  preceded(char('#'), link_or_word)(input)
+fn fixed_link_or_word<'a>(word: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
+  alt((tag(word), delimited(tag("[["), tag(word), tag("]]"))))
+}
+
+fn hashtag(input: &str) -> IResult<&str, (&str, bool)> {
+  map(
+    preceded(char('#'), pair(opt(tag(".")), link_or_word)),
+    |(has_dot, tag)| (tag, has_dot.map(|_| true).unwrap_or(false)),
+  )(input)
 }
 
 fn triple_backtick(input: &str) -> IResult<&str, &str> {
@@ -146,17 +156,35 @@ fn highlight(input: &str) -> IResult<&str, Vec<Expression>> {
   style("^^")(input)
 }
 
+fn brace_directive_contents(input: &str) -> IResult<&str, Expression> {
+  alt((
+    map(fixed_link_or_word("table"), |_| Expression::Table),
+    map(
+      separated_pair(
+        fixed_link_or_word("embed"),
+        terminated(tag(":"), multispace0),
+        alt((
+          map(block_ref, Expression::BlockEmbed),
+          map(link, Expression::PageEmbed),
+        )),
+      ),
+      |(_, e)| e,
+    ),
+    map(link_or_word, Expression::BraceDirective),
+  ))(input)
+}
+
 /// Parse directives like `{{table}}` and `{{[[table]]}}`
-fn brace_directive(input: &str) -> IResult<&str, &str> {
+fn brace_directive(input: &str) -> IResult<&str, Expression> {
   map(
     tuple((
       tag("{{"),
       map(take_until("}}"), |inner: &str| {
         // Try to parse a link from the brace contents. If these fail, just return the raw token.
         let inner = inner.trim();
-        all_consuming(link)(inner)
+        all_consuming(brace_directive_contents)(inner)
           .map(|x| x.1)
-          .unwrap_or_else(|_| inner)
+          .unwrap_or_else(|_| Expression::BraceDirective(inner))
       }),
       tag("}}"),
     )),
@@ -173,8 +201,8 @@ fn directive(input: &str) -> IResult<&str, Expression> {
   alt((
     map(triple_backtick, Expression::TripleBacktick),
     map(single_backtick, Expression::SingleBacktick),
-    map(brace_directive, Expression::BraceDirective),
-    map(hashtag, Expression::Hashtag),
+    brace_directive,
+    map(hashtag, |(v, dot)| Expression::Hashtag(v, dot)),
     map(link, Expression::Link),
     map(block_ref, Expression::BlockRef),
     map(image, |(alt, url)| Expression::Image { alt, url }),

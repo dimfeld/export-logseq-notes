@@ -1,3 +1,4 @@
+use crate::html;
 use crate::parse_string::{parse, Expression};
 use crate::roam_edn::*;
 use crate::syntax_highlight;
@@ -38,11 +39,24 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
       .map(|(_, slug)| {
         Cow::from(format!(
           r##"<a href="{slug}">{title}</a>"##,
-          title = s,
-          slug = slug
+          title = html::escape(s),
+          slug = html::escape(slug)
         ))
       })
-      .unwrap_or_else(|| Cow::from(s))
+      .unwrap_or_else(|| html::escape(s))
+  }
+
+  fn hashtag(&self, s: &'a str, dot: bool) -> Cow<'a, str> {
+    let anchor = self.link_if_allowed(s);
+    if dot {
+      Cow::from(format!(
+        "<span class=\"{s}\">{anchor}</span>",
+        s = s,
+        anchor = anchor
+      ))
+    } else {
+      anchor
+    }
   }
 
   fn render_block_uid(&self, s: &str) -> Result<String> {
@@ -93,7 +107,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
   fn render_brace_directive(&self, block: &Block, s: &str) -> (Cow<'a, str>, bool) {
     let (value, render_children) = match s {
       "table" => (self.render_table(block), false),
-      _ => (format!("<pre>{}</pre>", s), true),
+      _ => (format!("<pre>{}</pre>", html::escape(s)), true),
     };
 
     (Cow::from(value), render_children)
@@ -141,7 +155,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     self.render_expressions(block, contents).map(|(s, rc)| {
       let output = format!(
         r##"<span><strong class="rm-attr-ref">{name}:</strong>{s}</span> "##,
-        name = name,
+        name = html::escape(name),
         s = s
       );
       (Cow::from(output), rc)
@@ -150,12 +164,12 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
 
   fn render_expression(&self, block: &Block, e: Expression<'a>) -> Result<(Cow<'a, str>, bool)> {
     let (rendered, render_children) = match e {
-      Expression::Hashtag(s) => (self.link_if_allowed(s), true),
+      Expression::Hashtag(s, dot) => (self.hashtag(s, dot), true),
       Expression::Image { alt, url } => (
         Cow::from(format!(
           r##"<img title="{alt}" src="{url}" />"##,
-          alt = alt,
-          url = url
+          alt = html::escape(alt),
+          url = html::escape(url)
         )),
         true,
       ),
@@ -163,13 +177,14 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
       Expression::MarkdownLink { title, url } => (
         Cow::from(format!(
           r##"<a href="{url}">{title}</a>"##,
-          title = title,
-          url = url
+          title = html::escape(title),
+          url = html::escape(url),
         )),
         true,
       ),
-      Expression::SingleBacktick(s) => (Cow::from(format!("<code>{}</code>", s)), true),
-      // TODO Syntax highlighting
+      Expression::SingleBacktick(s) => {
+        (Cow::from(format!("<code>{}</code>", html::escape(s))), true)
+      }
       Expression::TripleBacktick(s) => (
         Cow::from(format!(
           "<pre><code>{}</code></pre>",
@@ -181,10 +196,29 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
       Expression::Italic(e) => self.render_style(block, "em", "rm-italics", e)?,
       Expression::Strike(e) => self.render_style(block, "del", "rm-strikethrough", e)?,
       Expression::Highlight(e) => self.render_style(block, "span", "rm-highlight", e)?,
-      Expression::Text(s) => (Cow::from(s), true),
+      Expression::Text(s) => (html::escape(s), true),
+      // TODO This is wrong. Render a link to the block instead
       Expression::BlockRef(s) => (Cow::from(self.render_block_uid(s)?), true),
       Expression::BraceDirective(s) => self.render_brace_directive(block, s),
+      Expression::Table => (Cow::from(self.render_table(block)), false),
       Expression::HRule => (Cow::from(r##"<hr class="rm-hr" />"##), true),
+      Expression::BlockEmbed(s) => (Cow::from(self.render_block_uid(s)?), true),
+      Expression::PageEmbed(s) => {
+        (Cow::from(s), true)
+        // TODO This writes to the writer instead of returning a string.
+        //      Need to deal with that.
+        //   (
+        //   Cow::from(
+        //     self
+        //       .graph
+        //       .blocks_by_uid
+        //       .get(s)
+        //       .map(|&block| self.render_block_and_children(block).map(|(line, _)| line))
+        //       .unwrap_or_else(|| String::new()),
+        //   ),
+        //   true,
+        // )
+      }
       Expression::Attribute { name, value } => self.render_attribute(block, name, value)?, // TODO
     };
 
