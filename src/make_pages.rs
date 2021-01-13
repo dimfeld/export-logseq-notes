@@ -37,17 +37,6 @@ struct TemplateArgs<'a> {
 }
 
 impl<'a, 'b, W: Write> Page<'a, 'b, W> {
-  pub fn write_line(&mut self, s: &str) -> Result<()> {
-    if !s.is_empty() {
-      self.write_depth()?;
-      self.writer.write_all("<li>".as_bytes())?;
-      self.writer.write_all(s.as_bytes())?;
-      self.writer.write_all("</li>\n".as_bytes())?;
-    }
-
-    Ok(())
-  }
-
   fn write_depth(&mut self) -> Result<()> {
     for _ in 0..self.depth {
       self.writer.write_all("  ".as_bytes())?;
@@ -264,11 +253,9 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     self.render_expressions(block, parsed)
   }
 
-  fn render_view_type_start(&mut self, view_type: ViewType, write_li: bool) -> Result<()> {
-    if write_li {
-      self.write_depth()?;
-      self.writer.write_all("<li>".as_bytes())?;
-    }
+  fn render_view_type_start(&mut self, view_type: ViewType) -> Result<()> {
+    self.writer.write_all("\n".as_bytes())?;
+    self.write_depth()?;
 
     match view_type {
       ViewType::Document => self
@@ -285,19 +272,13 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     Ok(())
   }
 
-  fn render_view_type_end(&mut self, view_type: ViewType, write_li: bool) -> Result<()> {
+  fn render_view_type_end(&mut self, view_type: ViewType) -> Result<()> {
     self.write_depth()?;
 
     match view_type {
-      ViewType::Document => self.writer.write_all("</ul>".as_bytes())?,
-      ViewType::Bullet => self.writer.write_all("</ul>".as_bytes())?,
-      ViewType::Numbered => self.writer.write_all("</ol>".as_bytes())?,
-    }
-
-    if write_li {
-      self.writer.write_all("</li>\n".as_bytes())?;
-    } else {
-      self.writer.write_all("\n".as_bytes())?;
+      ViewType::Document => self.writer.write_all("</ul>\n".as_bytes())?,
+      ViewType::Bullet => self.writer.write_all("</ul>\n".as_bytes())?,
+      ViewType::Numbered => self.writer.write_all("</ol>\n".as_bytes())?,
     }
 
     Ok(())
@@ -307,25 +288,48 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     let block = self.graph.blocks.get(&block_id).unwrap();
 
     let (rendered, render_children) = self.render_line(block)?;
-    self.write_line(&rendered)?;
+    let render_children = render_children && !block.children.is_empty();
+
+    let rendered = rendered.trim();
+
+    if rendered.is_empty() && !render_children {
+      return Ok(());
+    }
+
+    let render_li = self.depth > 0;
+
+    self.write_depth()?;
+
+    if render_li {
+      self.writer.write_all("<li>".as_bytes())?;
+    }
+
+    self.writer.write_all(rendered.as_bytes())?;
 
     // println!(
     //   "Block {} renderchildren: {}, children {:?}",
     //   block_id, render_children, block.children
     // );
 
-    if render_children && !block.children.is_empty() {
-      let render_li = self.depth > 0;
-      self.render_view_type_start(block.view_type, render_li)?;
-
+    if render_children {
       self.depth += 1;
+      self.render_view_type_start(block.view_type)?;
+      self.depth += 1;
+
       for child in &block.children {
         self.render_block_and_children(*child)?;
       }
-      self.depth -= 1;
 
-      self.render_view_type_end(block.view_type, render_li)?;
+      self.depth -= 1;
+      self.render_view_type_end(block.view_type)?;
+      self.depth -= 1;
     }
+
+    if render_li {
+      self.write_depth()?;
+      self.writer.write_all("</li>".as_bytes())?;
+    }
+    self.writer.write_all("\n".as_bytes())?;
 
     Ok(())
   }
