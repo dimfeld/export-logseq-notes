@@ -6,9 +6,12 @@ use anyhow::{anyhow, Result};
 use fxhash::FxHashMap;
 use itertools::Itertools;
 use rayon::prelude::*;
+use serde::Serialize;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 use std::io::{BufWriter, Write};
+use std::mem;
 use std::path::Path;
 
 pub struct Page<'a, 'b, W: Write> {
@@ -24,6 +27,15 @@ pub struct Page<'a, 'b, W: Write> {
   highlighter: &'b syntax_highlight::Highlighter,
 }
 
+#[derive(Serialize, Debug)]
+struct TemplateArgs<'a> {
+  title: &'a str,
+  body: &'a str,
+  tags: Vec<&'a str>,
+  created_time: usize,
+  edited_time: usize,
+}
+
 impl<'a, 'b, W: Write> Page<'a, 'b, W> {
   pub fn write_line(&mut self, s: &str) -> Result<()> {
     if !s.is_empty() {
@@ -37,7 +49,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
   }
 
   fn write_depth(&mut self) -> Result<()> {
-    for i in 0..self.depth {
+    for _ in 0..self.depth {
       self.writer.write_all("  ".as_bytes())?;
     }
 
@@ -297,10 +309,10 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     let (rendered, render_children) = self.render_line(block)?;
     self.write_line(&rendered)?;
 
-    println!(
-      "Block {} renderchildren: {}, children {:?}",
-      block_id, render_children, block.children
-    );
+    // println!(
+    //   "Block {} renderchildren: {}, children {:?}",
+    //   block_id, render_children, block.children
+    // );
 
     if render_children && !block.children.is_empty() {
       let render_li = self.depth > 0;
@@ -337,6 +349,7 @@ fn title_to_slug(s: &str) -> String {
 
 pub fn make_pages<'a, 'b>(
   graph: &'a Graph,
+  handlebars: &handlebars::Handlebars,
   highlighter: &'b syntax_highlight::Highlighter,
   filter_tag: &str,
   output_dir: &Path,
@@ -372,7 +385,7 @@ pub fn make_pages<'a, 'b>(
     .par_iter()
     .map(|(title, (id, slug))| {
       let output_path = output_dir.join(slug);
-      let mut writer = BufWriter::new(std::fs::File::create(output_path)?);
+      let mut page_writer = Vec::<u8>::new();
 
       let mut page = Page {
         id: *id,
@@ -381,14 +394,28 @@ pub fn make_pages<'a, 'b>(
         depth: 0,
         filter_tag,
         included_pages: &included_pages,
-        writer: &mut writer,
+        writer: &mut page_writer,
         highlighter,
       };
 
       page.render()?;
 
-      drop(page);
+      let block = graph.blocks.get(id).unwrap();
+
+      let template_data = TemplateArgs {
+        title,
+        body: &String::from_utf8(mem::take(page.writer))?,
+        tags: vec!["tags 1", "tags 2"],
+        created_time: block.create_time,
+        edited_time: block.edit_time,
+      };
+      let full_page = handlebars.render("page", &template_data)?;
+
+      let mut writer = std::fs::File::create(output_path)?;
+      writer.write_all(full_page.as_bytes())?;
       writer.flush()?;
+
+      println!("Wrote: \"{}\" to {}", title, slug);
 
       Ok((title.clone(), slug.clone()))
     })

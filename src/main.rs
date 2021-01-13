@@ -4,14 +4,16 @@ mod parse_string;
 mod parse_string_tests;
 mod roam_edn;
 mod syntax_highlight;
+mod template;
 use anyhow::{anyhow, Context, Error, Result};
 use fxhash::FxHashSet;
+use handlebars;
 use std::fs::File;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 use make_pages::make_pages;
-use roam_edn::Block;
 
 #[derive(Debug, StructOpt)]
 struct Config {
@@ -19,7 +21,7 @@ struct Config {
     file: String,
 
     #[structopt(short, long, env, default_value = "pages", help = "Output directory")]
-    output: std::path::PathBuf,
+    output: PathBuf,
 
     #[structopt(
         short,
@@ -36,9 +38,17 @@ struct Config {
     #[structopt(
         long,
         env,
-        help = "When hihglighting code, prefix class names with this value"
+        help = "When highlighting code, prefix class names with this value"
     )]
     highlight_class_prefix: Option<String>,
+
+    #[structopt(
+        long,
+        env,
+        help = "Template file",
+        default_value = "templates/front_matter.tmpl"
+    )]
+    template: PathBuf,
 }
 
 fn main() -> Result<()> {
@@ -46,6 +56,8 @@ fn main() -> Result<()> {
     let mut f = File::open(&config.file).with_context(|| format!("Opening {}", config.file))?;
     let mut raw_data = String::new();
     f.read_to_string(&mut raw_data)?;
+
+    let hbars = template::create(&config.template)?;
 
     let highlight_class_prefix = config.highlight_class_prefix.map(|p| {
         // syntect requires a &`static str, so intentionally leak the string into the
@@ -56,29 +68,9 @@ fn main() -> Result<()> {
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
     let graph = roam_edn::Graph::from_edn(&raw_data)?;
-    let pages = make_pages(&graph, &highlighter, &config.tag, &config.output)?;
+    let pages = make_pages(&graph, &hbars, &highlighter, &config.tag, &config.output)?;
 
-    let mut block_count = 0;
-    // for (id, block) in &graph.blocks {
-    //     if block.string.is_empty() || exported_page_ids.get(&block.page).is_none() {
-    //         continue;
-    //     }
-
-    //     block_count += 1;
-
-    //     let parse_result = match parse_string::parse(&block.string) {
-    //         Ok(e) => format!("Parsed: {:?}", e),
-    //         Err(e) => format!("Error: {:?}", e),
-    //     };
-
-    //     print!("Input: {}\n{}\n\n", block.string, parse_result);
-    // }
-
-    println!(
-        "Found {page_count} pages and {block_count} nodes",
-        page_count = pages.len(),
-        block_count = block_count
-    );
+    println!("Wrote {page_count} pages", page_count = pages.len());
 
     Ok(())
 }

@@ -123,7 +123,7 @@ fn fixed_link_or_word<'a>(word: &'a str) -> impl FnMut(&'a str) -> IResult<&'a s
 fn hashtag(input: &str) -> IResult<&str, (&str, bool)> {
   map(
     preceded(char('#'), pair(opt(tag(".")), link_or_word)),
-    |(has_dot, tag)| (tag, has_dot.map(|_| true).unwrap_or(false)),
+    |(has_dot, tag)| (tag, has_dot.is_some()),
   )(input)
 }
 
