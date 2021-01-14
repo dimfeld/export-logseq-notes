@@ -14,6 +14,11 @@ use std::io::{BufWriter, Write};
 use std::mem;
 use std::path::Path;
 
+struct TitleAndSlug {
+  title: String,
+  slug: String,
+}
+
 pub struct Page<'a, 'b, W: Write> {
   pub id: usize,
   pub title: String,
@@ -23,7 +28,8 @@ pub struct Page<'a, 'b, W: Write> {
 
   writer: W,
   graph: &'a Graph,
-  included_pages: &'a FxHashMap<String, (usize, String)>,
+  included_pages_by_title: &'a FxHashMap<String, (usize, String)>,
+  included_pages_by_id: &'a FxHashMap<usize, TitleAndSlug>,
   highlighter: &'b syntax_highlight::Highlighter,
 }
 
@@ -47,7 +53,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
 
   fn link_if_allowed(&self, s: &'a str) -> Cow<'a, str> {
     self
-      .included_pages
+      .included_pages_by_title
       .get(s)
       .map(|(_, slug)| {
         Cow::from(format!(
@@ -57,6 +63,39 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
         ))
       })
       .unwrap_or_else(|| html::escape(s))
+  }
+
+  fn render_block_ref(
+    &self,
+    containing_block: &'a Block,
+    s: &'a str,
+  ) -> Result<(Cow<'a, str>, bool)> {
+    let block = self.graph.block_from_uid(s);
+    match block {
+      Some(block) => self.render_line(block).map(|(result, _)| {
+        match self.included_pages_by_id.get(&block.page) {
+          Some(page) => {
+            // When the referenced page is exported, make this a link to the block.
+            let linked = format!(
+              r##"<a class="block-ref" href="{page}#{block}">{result}</a>"##,
+              page = page.slug,
+              block = block.uid,
+              result = result,
+            );
+
+            (Cow::from(linked), true)
+          }
+          None => (Cow::from(result), true),
+        }
+      }),
+      None => {
+        // Block ref syntax can also be expandable text. So if we don't match on a block then just render it.
+        parse(s)
+          .map_err(|e| anyhow!("Parse Error: {}", e))
+          .and_then(|expressions| self.render_expressions(containing_block, expressions))
+          .map(|(result, rc)| (Cow::from(result), rc))
+      }
+    }
   }
 
   fn hashtag(&self, s: &'a str, dot: bool) -> Cow<'a, str> {
@@ -184,7 +223,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     })
   }
 
-  fn render_expression(&self, block: &Block, e: Expression<'a>) -> Result<(Cow<'a, str>, bool)> {
+  fn render_expression(&self, block: &'a Block, e: Expression<'a>) -> Result<(Cow<'a, str>, bool)> {
     let (rendered, render_children) = match e {
       Expression::Hashtag(s, dot) => (self.hashtag(s, dot), true),
       Expression::Image { alt, url } => (
@@ -219,8 +258,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
       Expression::Strike(e) => self.render_style(block, "del", "rm-strikethrough", e)?,
       Expression::Highlight(e) => self.render_style(block, "span", "rm-highlight", e)?,
       Expression::Text(s) => (html::escape(s), true),
-      // TODO This is wrong. Render a link to the block instead
-      Expression::BlockRef(s) => (Cow::from(self.render_block_uid(s)?), true),
+      Expression::BlockRef(s) => self.render_block_ref(block, s)?,
       Expression::BraceDirective(s) => self.render_brace_directive(block, s),
       Expression::Table => (Cow::from(self.render_table(block)), false),
       Expression::HRule => (Cow::from(r##"<hr class="rm-hr" />"##), true),
@@ -249,7 +287,6 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
 
   fn render_line(&self, block: &'a Block) -> Result<(String, bool)> {
     let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
-
     self.render_expressions(block, parsed)
   }
 
@@ -301,7 +338,7 @@ impl<'a, 'b, W: Write> Page<'a, 'b, W> {
     self.write_depth()?;
 
     if render_li {
-      self.writer.write_all("<li>".as_bytes())?;
+      write!(self.writer, r##"<li id="{id}">"##, id = block.uid)?;
     }
 
     self.writer.write_all(rendered.as_bytes())?;
@@ -365,7 +402,7 @@ pub fn make_pages<'a, 'b>(
     .get(filter_tag)
     .ok_or_else(|| anyhow!("Could not find page with filter name {}", filter_tag))?;
 
-  let included_pages = graph
+  let included_pages_by_title = graph
     .blocks_with_reference(tag_node_id)
     .filter_map(|block| {
       let parsed = parse(&block.string).unwrap();
@@ -387,7 +424,20 @@ pub fn make_pages<'a, 'b>(
     })
     .collect::<FxHashMap<_, _>>();
 
-  let pages = included_pages
+  let included_pages_by_id = included_pages_by_title
+    .iter()
+    .map(|(title, (id, slug))| {
+      (
+        *id,
+        TitleAndSlug {
+          title: title.clone(),
+          slug: slug.clone(),
+        },
+      )
+    })
+    .collect::<FxHashMap<_, _>>();
+
+  let pages = included_pages_by_title
     .par_iter()
     .map(|(title, (id, slug))| {
       let output_path = output_dir.join(slug);
@@ -399,7 +449,8 @@ pub fn make_pages<'a, 'b>(
         graph: &graph,
         depth: 0,
         filter_tag,
-        included_pages: &included_pages,
+        included_pages_by_title: &included_pages_by_title,
+        included_pages_by_id: &included_pages_by_id,
         writer: &mut page_writer,
         highlighter,
       };

@@ -33,7 +33,7 @@ struct Config {
     tag: String,
 
     #[structopt(long="no-backlinks", env, parse(from_flag = std::ops::Not::not), help="Omit backlinks at the bottom of each page")]
-    backlinks: bool,
+    backlinks: bool, // TODO
 
     #[structopt(
         long,
@@ -49,6 +49,13 @@ struct Config {
         default_value = "templates/front_matter.tmpl"
     )]
     template: PathBuf,
+
+    #[structopt(
+        long,
+        env,
+        help = "If a block contains just a single link and it is to a non-exported page, omit the block"
+    )]
+    omit_blocks_with_only_unexported_links: bool, // TODO
 }
 
 fn main() -> Result<()> {

@@ -96,7 +96,7 @@ impl Graph {
     // This happens on image dimensions and the parser doesn't like it
     let processed = s.replace("##NaN", "0");
 
-    let edn = Edn::from_str(processed.as_str())?;
+    let edn = Edn::from_str(&processed)?;
     let datoms = match edn.get(":datoms") {
       Some(Edn::Vector(vec)) => vec.clone().to_vec(),
       None => return Err(EdnError::ParseEdn(String::from(":datoms was not found"))),
