@@ -11,7 +11,7 @@ fn escape_char(c: char) -> Option<&'static str> {
   }
 }
 
-pub fn escape<'a>(input: &'a str) -> Cow<'a, str> {
+pub fn escape(input: &str) -> Cow<str> {
   for (i, c) in input.chars().enumerate() {
     if let Some(e) = escape_char(c) {
       let mut output = String::with_capacity(input.len() + e.len());

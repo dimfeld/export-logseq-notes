@@ -5,12 +5,10 @@ mod parse_string_tests;
 mod roam_edn;
 mod syntax_highlight;
 mod template;
-use anyhow::{anyhow, Context, Error, Result};
-use fxhash::FxHashSet;
-use handlebars;
+use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use structopt::StructOpt;
 
 use make_pages::make_pages;
@@ -56,6 +54,9 @@ struct Config {
         help = "If a block contains just a single link and it is to a non-exported page, omit the block"
     )]
     omit_blocks_with_only_unexported_links: bool, // TODO
+
+    #[structopt(long, env, help = "Include page embeds of non-exported pages")]
+    include_all_page_embeds: bool, // TODO
 }
 
 fn main() -> Result<()> {
