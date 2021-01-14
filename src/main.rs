@@ -25,7 +25,7 @@ struct Config {
         short,
         long,
         env,
-        default_value = "export",
+        default_value = "note-export",
         help = "Page reference to indicate export inclusion (without hashtag or brackets)"
     )]
     tag: String,
@@ -47,6 +47,14 @@ struct Config {
         default_value = "templates/front_matter.tmpl"
     )]
     template: PathBuf,
+
+    #[structopt(
+        long = "ext",
+        env,
+        help = "Output file extension",
+        default_value = "html"
+    )]
+    extension: String,
 
     #[structopt(
         long,
@@ -76,7 +84,14 @@ fn main() -> Result<()> {
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
     let graph = roam_edn::Graph::from_edn(&raw_data)?;
-    let pages = make_pages(&graph, &hbars, &highlighter, &config.tag, &config.output)?;
+    let pages = make_pages(
+        &graph,
+        &hbars,
+        &highlighter,
+        &config.tag,
+        &config.output,
+        &config.extension,
+    )?;
 
     println!("Wrote {page_count} pages", page_count = pages.len());
 

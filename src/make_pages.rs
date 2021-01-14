@@ -472,15 +472,19 @@ pub fn make_pages<'a, 'b>(
   highlighter: &'b syntax_highlight::Highlighter,
   filter_tag: &str,
   output_dir: &Path,
+  extension: &str,
 ) -> Result<Vec<(String, String)>> {
   let tag_node_id = *graph
     .titles
     .get(filter_tag)
     .ok_or_else(|| anyhow!("Could not find page with filter name {}", filter_tag))?;
 
+  println!("Tag node: {:?}", tag_node_id);
+
   let included_pages_by_title = graph
     .blocks_with_reference(tag_node_id)
     .filter_map(|block| {
+      println!("{:?}", block);
       let parsed = parse(&block.string).unwrap();
 
       let page = graph.blocks.get(&block.page)?;
@@ -516,7 +520,8 @@ pub fn make_pages<'a, 'b>(
   let pages = included_pages_by_title
     .par_iter()
     .map(|(title, (id, slug))| {
-      let output_path = output_dir.join(slug);
+      let mut output_path = output_dir.join(slug);
+      output_path.set_extension(extension);
 
       let page = Page {
         id: *id,
