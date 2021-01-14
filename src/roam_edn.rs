@@ -77,6 +77,15 @@ impl Graph {
     }
   }
 
+  fn add_block(&mut self, block: Block) {
+    if let Some(title) = &block.title {
+      self.titles.insert(title.clone(), block.id);
+    }
+
+    self.blocks_by_uid.insert(block.uid.clone(), block.id);
+    self.blocks.insert(block.id, block);
+  }
+
   pub fn from_edn(mut s: &str) -> Result<Graph, EdnError> {
     let mut graph = Graph {
       blocks: BTreeMap::new(),
@@ -123,14 +132,7 @@ impl Graph {
         // which so far is always true.
         let adding_block = mem::take(&mut current_block);
 
-        if let Some(title) = &adding_block.title {
-          graph.titles.insert(title.clone(), adding_block.id);
-        }
-
-        graph
-          .blocks_by_uid
-          .insert(adding_block.uid.clone(), adding_block.id);
-        graph.blocks.insert(adding_block.id, adding_block);
+        graph.add_block(adding_block);
       }
 
       let attr_item = &datom[1];
@@ -181,6 +183,8 @@ impl Graph {
         _ => {}
       }
     }
+
+    graph.add_block(current_block);
 
     Ok(graph)
   }
