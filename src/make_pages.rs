@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::io::Write;
 use std::path::Path;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum StringBuilder<'a> {
   Empty,
   String(Cow<'a, str>),
@@ -144,7 +144,7 @@ impl<'a, 'b> Page<'a, 'b> {
   ) -> Result<(StringBuilder<'a>, bool)> {
     let block = self.graph.block_from_uid(s);
     match block {
-      Some(block) => self.render_line(block).map(|(result, _)| {
+      Some(block) => self.render_line_without_header(block).map(|(result, _)| {
         match self.included_pages_by_id.get(&block.page) {
           Some(page) => {
             // When the referenced page is exported, make this a link to the block.
@@ -190,11 +190,17 @@ impl<'a, 'b> Page<'a, 'b> {
     }
   }
 
-  fn render_block_uid(&self, s: &str) -> Result<StringBuilder<'a>> {
+  fn render_block_embed(&self, s: &str) -> Result<StringBuilder<'a>> {
     self
       .graph
       .block_from_uid(s)
-      .map(|block| self.render_line(block).map(|(line, _)| line))
+      .map(|block| self.render_block_and_children(block.id, 0).map(|rendered| {
+        StringBuilder::from(vec![
+          StringBuilder::from("<div class=\"roam-block-container rm-block rm-block--open rm-not-focused block-bullet-view\">"),
+          rendered,
+          StringBuilder::from("</div>")
+        ])
+      }))
       .unwrap_or(Ok(StringBuilder::Empty))
   }
 
@@ -208,7 +214,7 @@ impl<'a, 'b> Page<'a, 'b> {
       .blocks
       .get(&id)
       .map(|block| {
-        let rendered = self.render_line(block).unwrap();
+        let rendered = self.render_line_without_header(block).unwrap();
         let mut row = row.clone();
         row.push(rendered.0);
         block
@@ -364,13 +370,27 @@ impl<'a, 'b> Page<'a, 'b> {
       Expression::BraceDirective(s) => self.render_brace_directive(block, s),
       Expression::Table => (self.render_table(block), false),
       Expression::HRule => (r##"<hr class="rm-hr" />"##.into(), true),
-      Expression::BlockEmbed(s) => (self.render_block_uid(s)?, true),
+      Expression::BlockEmbed(s) => (self.render_block_embed(s)?, true),
       Expression::PageEmbed(s) => (
         self
-          .graph
-          .blocks_by_uid
+          .included_pages_by_title
           .get(s)
-          .map(|&block| self.render_block_and_children(block, 0))
+          .map(|(block_id, _)| {
+            self
+              .render_block_and_children(*block_id, 0)
+              .map(|embedded_page| {
+                StringBuilder::from(vec![
+                  StringBuilder::from(format!(
+                    r##"<div class="rm-embed rm-embed--page rm-embed-container">
+                  <h3 class="rm-page__title">{}</h3>
+                  <div class="rm-embed__content">"##,
+                    s
+                  )),
+                  embedded_page,
+                  StringBuilder::from("</div>\n</div>"),
+                ])
+              })
+          })
           .unwrap_or(Ok(StringBuilder::Empty))?,
         true,
       ),
@@ -380,9 +400,26 @@ impl<'a, 'b> Page<'a, 'b> {
     Ok((rendered, render_children))
   }
 
-  fn render_line(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
+  fn render_line_without_header(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
     let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
     self.render_expressions(block, parsed)
+  }
+
+  fn render_line(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
+    self.render_line_without_header(block).map(|result| {
+      if block.heading > 0 {
+        (
+          StringBuilder::Vec(vec![
+            StringBuilder::from(format!("<div class=\"rm-heading-{}\">", block.heading)),
+            result.0,
+            StringBuilder::from("</div>"),
+          ]),
+          result.1,
+        )
+      } else {
+        result
+      }
+    })
   }
 
   fn render_block_and_children(&self, block_id: usize, depth: usize) -> Result<StringBuilder<'a>> {
@@ -479,12 +516,9 @@ pub fn make_pages<'a, 'b>(
     .get(filter_tag)
     .ok_or_else(|| anyhow!("Could not find page with filter name {}", filter_tag))?;
 
-  println!("Tag node: {:?}", tag_node_id);
-
   let included_pages_by_title = graph
     .blocks_with_reference(tag_node_id)
     .filter_map(|block| {
-      println!("{:?}", block);
       let parsed = parse(&block.string).unwrap();
 
       let page = graph.blocks.get(&block.page)?;
