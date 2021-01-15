@@ -76,6 +76,24 @@ impl Config {
     let config_file = std::env::var("EXPORT_ROAM_NOTES_CONFIG")
       .unwrap_or_else(|_| "export-roam-notes.cfg".to_string());
     dotenv::from_filename(config_file).ok();
-    Config::from_args()
+
+    let mut cfg = Config::from_args();
+
+    // For environment variables, handle comma separated strings for vectors
+    cfg.include = cfg
+      .include
+      .iter()
+      .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
+      .collect::<Vec<_>>();
+
+    cfg.exclude = cfg
+      .exclude
+      .iter()
+      .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
+      .collect::<Vec<_>>();
+
+    println!("{:?}", cfg);
+
+    cfg
   }
 }
