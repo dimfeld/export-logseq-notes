@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context as AnyhowContext, Result};
+use anyhow::{Context as AnyhowContext, Result};
 use chrono::TimeZone;
 use handlebars::*;
 use itertools::Itertools;

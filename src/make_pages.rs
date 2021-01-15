@@ -10,7 +10,6 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Serialize;
 use std::io::Write;
-use std::path::Path;
 
 struct TitleAndSlug {
   title: String,
@@ -422,6 +421,12 @@ fn title_to_slug(s: &str) -> String {
     .join("_")
 }
 
+// fn page_slug(config: &Config, graph: &Graph, page: &Block, attr_block: Option<&Block>) {
+//   let attr_block = attr_block.unwrap_or_else(|| {
+//     // TODO Find the block with the attr
+//   })
+// }
+
 pub fn make_pages<'a, 'b>(
   graph: &'a Graph,
   handlebars: &handlebars::Handlebars,
@@ -460,6 +465,12 @@ pub fn make_pages<'a, 'b>(
     .chain(exclude_tag_ids.iter().copied())
     .collect::<FxHashSet<usize>>();
 
+  // let block_iter = if config.include_all {
+  //   graph.pages()
+  // } else {
+
+  // }
+
   let included_pages_by_title = graph
     .blocks_with_references(&tag_node_ids)
     .filter_map(|block| {
@@ -467,7 +478,8 @@ pub fn make_pages<'a, 'b>(
 
       let page = graph.blocks.get(&block.page)?;
 
-      if excluded_page_ids.get(&page.id).is_some() {
+      if excluded_page_ids.get(&page.id).is_some() || (page.log_id > 0 && !config.allow_daily_notes)
+      {
         println!("Excluded: {}", page.title.as_ref().unwrap());
         return None;
       }

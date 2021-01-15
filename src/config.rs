@@ -1,5 +1,3 @@
-use dotenv;
-use std::env;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -29,6 +27,16 @@ pub struct Config {
     help = "Additional hashtags, links, and attributes to indicate a page should be included. Unlike the primary tag filter, this will not be removed from the output"
   )]
   pub include: Vec<String>,
+
+  #[structopt(
+    long,
+    env,
+    help = "Instead of using tags, include all pages, except for daily notes pages (controlled by --include-daily-logs) and pages with excluded tags"
+  )]
+  pub include_all: bool,
+
+  #[structopt(long, env, help = "Make daily notes pages eligible to be included.")]
+  pub allow_daily_notes: bool,
 
   #[structopt(
     long,

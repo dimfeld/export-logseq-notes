@@ -1,16 +1,13 @@
 use nom::{
   branch::alt,
-  bytes::complete::{is_a, is_not, tag, take_until, take_while1},
-  character::complete::{anychar, char, line_ending, multispace0, one_of},
+  bytes::complete::{is_not, tag, take_until, take_while1},
+  character::complete::{char, multispace0, one_of},
   character::{is_newline, is_space},
-  combinator::{all_consuming, eof, map, map_parser, not, opt, peek, recognize, value},
-  multi::{many0, many1, many_till},
+  combinator::{all_consuming, eof, map, map_parser, opt, recognize},
+  multi::many0,
   sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
   IResult,
 };
-use std::borrow::Cow;
-
-// TODO Parse attributes
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expression<'a> {
@@ -72,10 +69,6 @@ fn ws_char(c: char) -> bool {
 
 fn whitespace(input: &str) -> IResult<&str, &str> {
   take_while1(ws_char)(input)
-}
-
-fn start_of_directive(input: &str) -> IResult<&str, &str> {
-  alt((tag("{{"), tag("[["), tag("#"), tag("`"), tag("![")))(input)
 }
 
 fn text(input: &str) -> IResult<&str, &str> {

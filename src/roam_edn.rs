@@ -49,6 +49,10 @@ pub struct Block {
   pub page: usize,
   pub order: usize,
   pub refs: SmallVec<[usize; 4]>,
+  pub referenced_attrs: FxHashMap<String, AttrType>,
+
+  /** Nonzero indicates that this is a daily log page (I think) */
+  pub log_id: usize,
 
   /** An index into the graph's `emails` vector */
   pub create_email: usize,
@@ -56,6 +60,102 @@ pub struct Block {
   /** An index into the graph's `emails` vector */
   pub edit_email: usize,
   pub edit_time: usize,
+}
+
+#[derive(Debug)]
+pub enum AttrType {
+  Uid(String),
+  Str(String),
+}
+
+pub struct EntityAttr {
+  pub uid: String,
+  pub value: AttrType,
+}
+
+impl TryFrom<Edn> for EntityAttr {
+  type Error = EdnError;
+
+  /** Parse a value from an `:entity/attr` set. */
+  fn try_from(e: Edn) -> Result<EntityAttr, EdnError> {
+    /* Vector[
+      {:source current-page-uid, :value current-page-uid],
+      [:source referencing-block-uid, :value attr-block-uid]
+      [:source referencing-block-uid, :value attr-value]
+    ]
+
+    attr value can either be a string or a uid
+
+    uid references are all vectors of the form [":block/uid" "the-uid"]
+    */
+
+    match e {
+      Edn::Vector(v) => {
+        let mut values = v.to_vec();
+
+        let m_value = values.pop();
+        let m_uid = values.pop();
+
+        // Walk through the value and uid map/vectors in parallel
+        m_uid
+          .zip(m_value)
+          .and_then(|v| match v {
+            (Edn::Map(m_uid), Edn::Map(m_value)) => {
+              let v_uid = m_uid.to_map().remove(":value");
+              let v_value = m_value.to_map().remove(":value");
+
+              v_uid.zip(v_value)
+            }
+            _ => {
+              println!("Maps {:?}", v);
+              None
+            }
+          })
+          .and_then(|(uid_edn, value_edn)| {
+            match uid_edn {
+              Edn::Vector(uid_vec) => {
+                let mut uid_vec = uid_vec.to_vec();
+                Some(mem::replace(&mut uid_vec[1], Edn::Empty))
+              }
+              Edn::Nil => Some(Edn::Str(String::new())),
+              _ => {
+                println!("EDN Vec {:?}", uid_edn);
+                None
+              }
+            }
+            .and_then(|uid| match value_edn {
+              Edn::Str(value) => Some((uid, AttrType::Str(value.trim().to_string()))),
+              Edn::Vector(value_vec) => {
+                let mut value_vec = value_vec.to_vec();
+                match mem::replace(&mut value_vec[1], Edn::Empty) {
+                  Edn::Str(value) => Some((uid, AttrType::Uid(value))),
+                  _ => {
+                    println!("Value Vec {:?}", value_vec);
+                    None
+                  }
+                }
+              }
+              _ => {
+                println!("Value Edn {:?}", value_edn);
+                None
+              }
+            })
+          })
+          .and_then(|(uid_edn, value)| match uid_edn {
+            Edn::Str(uid) => Some(EntityAttr { uid, value }),
+            _ => {
+              println!("Last Str {:?}", uid_edn);
+              None
+            }
+          })
+          .ok_or_else(|| EdnError::ParseEdn("Unexpected attr format".to_string()))
+      }
+      _ => Err(EdnError::ParseEdn(format!(
+        "Expected attr to be a vector, saw {:?}",
+        e
+      ))),
+    }
+  }
 }
 
 pub struct Graph {
@@ -165,23 +265,32 @@ impl Graph {
         (":block/open", value) => current_block.open = value.to_bool().unwrap_or(true),
         (":block/order", value) => current_block.order = value.to_uint().unwrap(),
         (":block/refs", value) => current_block.refs.push(value.to_uint().unwrap()),
+        (":log/id", value) => current_block.log_id = value.to_uint().unwrap(),
 
         (":create/email", Edn::Str(v)) => current_block.create_email = graph.get_email_index(v),
         (":edit/email", Edn::Str(v)) => current_block.edit_email = graph.get_email_index(v),
         (":create/time", value) => current_block.create_time = value.to_uint().unwrap(),
         (":edit/time", value) => current_block.edit_time = value.to_uint().unwrap(),
+        (":entity/attrs", Edn::Set(attrs)) => {
+          // List of attributes referenced within a page
+          println!("Block {}", current_block.id);
+          current_block.referenced_attrs = attrs
+            .to_set()
+            .into_iter()
+            .map(|a| EntityAttr::try_from(a).map(|ea| (ea.uid, ea.value)))
+            .collect::<Result<FxHashMap<_, _>, _>>()?;
+        }
         // Just ignore other attributes for now
         // ":attrs/lookup"
-        // ":entity/attrs" // On attribute blocks, list of attributes that occur in the graph
         // ":window/id"
         // ":window/filters" // Filters enabled on the page
-        // ":log/id"  // This is some kind of timestamp on daily note pages.
 
         // These show up on special entities that only define users in the graph
         // ":user/color"
         // ":user/email"
         // ":user/settings"
         // ":user/uid"
+        // ":user/display-name"
         _ => {}
       }
     }
@@ -194,14 +303,14 @@ impl Graph {
     Ok(graph)
   }
 
-  fn block_iter<F: FnMut(&(&usize, &Block)) -> bool>(
-    &self,
+  fn block_iter<'a, F: FnMut(&(&usize, &Block)) -> bool>(
+    &'a self,
     filter: F,
-  ) -> impl Iterator<Item = &Block> {
+  ) -> impl Iterator<Item = &'a Block> {
     self.blocks.iter().filter(filter).map(|(_, n)| n)
   }
 
-  pub fn pages(&self) -> impl Iterator<Item = &Block> {
+  pub fn pages<'a>(&'a self) -> impl Iterator<Item = &'a Block> {
     self.block_iter(|(_, n)| n.title.is_some())
   }
 
@@ -209,11 +318,7 @@ impl Graph {
     &'a self,
     references: &'a [usize],
   ) -> impl Iterator<Item = &'a Block> {
-    self.block_iter(move |(_, n)| {
-      n.refs
-        .iter()
-        .any(move |r| references.iter().any(|needed| r == needed))
-    })
+    self.block_iter(move |(_, n)| n.refs.iter().any(move |r| references.contains(r)))
   }
 
   pub fn block_from_uid(&self, uid: &str) -> Option<&Block> {

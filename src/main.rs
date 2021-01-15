@@ -11,7 +11,6 @@ use anyhow::{Context, Result};
 use config::Config;
 use std::fs::File;
 use std::io::Read;
-use structopt::StructOpt;
 
 use make_pages::make_pages;
 
