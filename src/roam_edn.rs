@@ -130,8 +130,10 @@ impl Graph {
       if entity != current_block.id {
         // This assumes that all attributes for a block are contiguous in the data,
         // which so far is always true.
-        let adding_block = mem::take(&mut current_block);
-
+        let mut adding_block = mem::take(&mut current_block);
+        if adding_block.page == 0 {
+          adding_block.page = adding_block.id;
+        }
         graph.add_block(adding_block);
       }
 
@@ -184,6 +186,9 @@ impl Graph {
       }
     }
 
+    if current_block.page == 0 {
+      current_block.page = current_block.id;
+    }
     graph.add_block(current_block);
 
     Ok(graph)
@@ -200,8 +205,15 @@ impl Graph {
     self.block_iter(|(_, n)| n.title.is_some())
   }
 
-  pub fn blocks_with_reference(&self, reference: usize) -> impl Iterator<Item = &Block> {
-    self.block_iter(move |(_, n)| n.refs.iter().any(move |&r| r == reference))
+  pub fn blocks_with_references<'a>(
+    &'a self,
+    references: &'a [usize],
+  ) -> impl Iterator<Item = &'a Block> {
+    self.block_iter(move |(_, n)| {
+      n.refs
+        .iter()
+        .any(move |r| references.iter().any(|needed| r == needed))
+    })
   }
 
   pub fn block_from_uid(&self, uid: &str) -> Option<&Block> {

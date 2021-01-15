@@ -1,97 +1,16 @@
+use crate::config::Config;
 use crate::html;
 use crate::parse_string::{parse, Expression};
 use crate::roam_edn::*;
+use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::borrow::Cow;
 use std::io::Write;
 use std::path::Path;
-
-#[derive(Clone, Debug)]
-enum StringBuilder<'a> {
-  Empty,
-  String(Cow<'a, str>),
-  Vec(Vec<StringBuilder<'a>>),
-}
-
-impl<'a> StringBuilder<'a> {
-  pub fn new() -> StringBuilder<'a> {
-    StringBuilder::Vec(Vec::new())
-  }
-
-  pub fn with_capacity(capacity: usize) -> StringBuilder<'a> {
-    StringBuilder::Vec(Vec::with_capacity(capacity))
-  }
-
-  pub fn push<T: Into<StringBuilder<'a>>>(&mut self, value: T) {
-    match self {
-      StringBuilder::Vec(ref mut v) => v.push(value.into()),
-      _ => panic!("Tried to push_str on non-vector StringBuilder"),
-    }
-  }
-
-  fn append(self, output: &mut String) {
-    match self {
-      StringBuilder::Empty => (),
-      StringBuilder::String(s) => output.push_str(&s),
-      StringBuilder::Vec(v) => v.into_iter().for_each(|sb| sb.append(output)),
-    }
-  }
-
-  pub fn build(self) -> String {
-    match &self {
-      StringBuilder::Empty => String::new(),
-      StringBuilder::String(s) => s.to_string(),
-      StringBuilder::Vec(_) => {
-        let mut output = String::new();
-        self.append(&mut output);
-        output
-      }
-    }
-  }
-
-  pub fn is_empty(&self) -> bool {
-    match self {
-      StringBuilder::Empty => true,
-      StringBuilder::String(s) => s.is_empty(),
-      StringBuilder::Vec(v) => v.is_empty() || v.iter().all(|s| s.is_empty()),
-    }
-  }
-}
-
-impl<'a> From<Cow<'a, str>> for StringBuilder<'a> {
-  fn from(s: Cow<'a, str>) -> StringBuilder<'a> {
-    StringBuilder::String(s)
-  }
-}
-
-impl<'a> From<String> for StringBuilder<'a> {
-  fn from(s: String) -> StringBuilder<'a> {
-    StringBuilder::String(Cow::from(s))
-  }
-}
-
-impl<'a> From<&'a str> for StringBuilder<'a> {
-  fn from(s: &'a str) -> StringBuilder<'a> {
-    StringBuilder::String(Cow::from(s))
-  }
-}
-
-// impl<'a> From<Vec<StringBuilder<'a>>> for StringBuilder<'a> {
-//   fn from(s: Vec<StringBuilder<'a>>) -> StringBuilder<'a> {
-//     StringBuilder::Vec(s)
-//   }
-// }
-
-impl<'a, T: Into<StringBuilder<'a>>> From<Vec<T>> for StringBuilder<'a> {
-  fn from(s: Vec<T>) -> StringBuilder<'a> {
-    StringBuilder::Vec(s.into_iter().map(|e| e.into()).collect::<Vec<_>>())
-  }
-}
 
 struct TitleAndSlug {
   title: String,
@@ -174,7 +93,7 @@ impl<'a, 'b> Page<'a, 'b> {
 
   fn hashtag(&self, s: &'a str, dot: bool) -> StringBuilder<'a> {
     if s == self.filter_tag {
-      // Don't render the export tag
+      // Don't render the primary export tag
       return StringBuilder::Empty;
     }
 
@@ -507,25 +426,55 @@ pub fn make_pages<'a, 'b>(
   graph: &'a Graph,
   handlebars: &handlebars::Handlebars,
   highlighter: &'b syntax_highlight::Highlighter,
-  filter_tag: &str,
-  output_dir: &Path,
-  extension: &str,
+  config: &Config,
 ) -> Result<Vec<(String, String)>> {
-  let tag_node_id = *graph
-    .titles
-    .get(filter_tag)
-    .ok_or_else(|| anyhow!("Could not find page with filter name {}", filter_tag))?;
+  let mut all_filter_tags = vec![config.tag.to_string()];
+  all_filter_tags.extend_from_slice(&config.include);
+
+  let tag_node_ids = all_filter_tags
+    .iter()
+    .map(|tag| {
+      graph
+        .titles
+        .get(tag)
+        .copied()
+        .ok_or_else(|| anyhow!("Could not find page with filter name {}", tag))
+    })
+    .collect::<Result<Vec<usize>>>()?;
+
+  let exclude_tag_ids = config
+    .exclude
+    .iter()
+    .map(|tag| {
+      graph
+        .titles
+        .get(tag)
+        .copied()
+        .ok_or_else(|| anyhow!("Could not find page with excluded filter name {}", tag))
+    })
+    .collect::<Result<Vec<usize>>>()?;
+
+  let excluded_page_ids = graph
+    .blocks_with_references(&exclude_tag_ids)
+    .map(|block| block.page)
+    .chain(exclude_tag_ids.iter().copied())
+    .collect::<FxHashSet<usize>>();
 
   let included_pages_by_title = graph
-    .blocks_with_reference(tag_node_id)
+    .blocks_with_references(&tag_node_ids)
     .filter_map(|block| {
       let parsed = parse(&block.string).unwrap();
 
       let page = graph.blocks.get(&block.page)?;
 
+      if excluded_page_ids.get(&page.id).is_some() {
+        println!("Excluded: {}", page.title.as_ref().unwrap());
+        return None;
+      }
+
       let slug = match parsed.as_slice() {
         [Expression::Attribute { name, value }] => {
-          if *name == filter_tag {
+          if *name == config.tag {
             value.iter().map(|e| e.plaintext()).join("")
           } else {
             title_to_slug(page.title.as_ref().unwrap())
@@ -554,14 +503,14 @@ pub fn make_pages<'a, 'b>(
   let pages = included_pages_by_title
     .par_iter()
     .map(|(title, (id, slug))| {
-      let mut output_path = output_dir.join(slug);
-      output_path.set_extension(extension);
+      let mut output_path = config.output.join(slug);
+      output_path.set_extension(&config.extension);
 
       let page = Page {
         id: *id,
         title: title.clone(),
         graph: &graph,
-        filter_tag,
+        filter_tag: &config.tag,
         included_pages_by_title: &included_pages_by_title,
         included_pages_by_id: &included_pages_by_id,
         highlighter,

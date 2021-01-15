@@ -1,0 +1,22 @@
+<html>
+<head>
+  <title>{{title}}</title>
+</head>
+
+<body>
+  <article>
+    <header>
+      <h1>{{title}}</h1>
+      <div>
+        Written
+        <time>{{format_time "%Y-%m-%d" created_time}}</time>
+        &mdash;
+        Updated
+        <time>{{format_time "%Y-%m-%d" edited_time}}</time>
+      </div>
+    </header>
+
+    {{{body}}}
+  </article>
+</body>
+</html>
