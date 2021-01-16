@@ -478,8 +478,13 @@ pub fn make_pages<'a, 'b>(
     .map(|b| b.uid.as_str());
 
   let included_pages_by_title = graph
-    .blocks_with_references(&tag_node_ids)
-    .filter_map(|block| {
+    .blocks
+    .iter()
+    .filter_map(|(_, block)| {
+      if !config.include_all && !block.refs.iter().any(|r| tag_node_ids.contains(r)) {
+        return None;
+      }
+
       let page = graph.blocks.get(&block.page)?;
 
       if excluded_page_ids.get(&page.id).is_some() || (page.log_id > 0 && !config.allow_daily_notes)
@@ -488,8 +493,14 @@ pub fn make_pages<'a, 'b>(
         return None;
       }
 
+      if page.title.is_none() {
+        return None;
+      }
+
       let slug = match main_tag_uid.and_then(|uid| page.referenced_attrs.get(uid)) {
+        // The page sets the filename manually.
         Some(AttrValue::Str(s)) => s.clone(),
+        // Otherwise generate it from the title.
         _ => title_to_slug(page.title.as_ref().unwrap()),
       };
 
