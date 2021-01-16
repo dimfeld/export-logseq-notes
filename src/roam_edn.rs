@@ -49,7 +49,7 @@ pub struct Block {
   pub page: usize,
   pub order: usize,
   pub refs: SmallVec<[usize; 4]>,
-  pub referenced_attrs: FxHashMap<String, AttrType>,
+  pub referenced_attrs: FxHashMap<String, AttrValue>,
 
   /** Nonzero indicates that this is a daily log page (I think) */
   pub log_id: usize,
@@ -63,14 +63,45 @@ pub struct Block {
 }
 
 #[derive(Debug)]
-pub enum AttrType {
+pub enum AttrValue {
+  Nil,
   Uid(String),
   Str(String),
 }
 
 pub struct EntityAttr {
   pub uid: String,
-  pub value: AttrType,
+  pub value: AttrValue,
+}
+
+fn parse_attr_value(e: Edn) -> Result<AttrValue, EdnError> {
+  match e {
+    Edn::Nil => Ok(AttrValue::Nil),
+    Edn::Str(s) => Ok(AttrValue::Str(s)),
+    Edn::Vector(v) => {
+      let mut v = v.to_vec();
+      let attr_value = v.pop();
+      let attr_type = v.pop();
+
+      match (attr_type, attr_value) {
+        (Some(Edn::Key(k)), Some(Edn::Str(s))) => match k.as_str() {
+          ":block/uid" => Ok(AttrValue::Uid(s.trim().to_string())),
+          _ => Err(EdnError::ParseEdn(format!(
+            "Unknown attribute value type {}",
+            k
+          ))),
+        },
+        (k, v) => Err(EdnError::ParseEdn(format!(
+          "Unexpected attribute format [{:?}, {:?}]",
+          k, v
+        ))),
+      }
+    }
+    _ => Err(EdnError::ParseEdn(format!(
+      "Unexpected attribute format {:?}",
+      e
+    ))),
+  }
 }
 
 impl TryFrom<Edn> for EntityAttr {
@@ -93,62 +124,46 @@ impl TryFrom<Edn> for EntityAttr {
       Edn::Vector(v) => {
         let mut values = v.to_vec();
 
-        let m_value = values.pop();
-        let m_uid = values.pop();
+        let m_value = values
+          .pop()
+          .ok_or_else(|| EdnError::ParseEdn("Missing attribute value".to_string()))?;
+        let m_uid = values
+          .pop()
+          .ok_or_else(|| EdnError::ParseEdn("Missing attribute uid".to_string()))?;
 
         // Walk through the value and uid map/vectors in parallel
-        m_uid
-          .zip(m_value)
-          .and_then(|v| match v {
-            (Edn::Map(m_uid), Edn::Map(m_value)) => {
-              let v_uid = m_uid.to_map().remove(":value");
-              let v_value = m_value.to_map().remove(":value");
+        match (m_uid, m_value) {
+          (Edn::Map(m_uid), Edn::Map(m_value)) => {
+            let uid = m_uid
+              .to_map()
+              .remove(":value")
+              .ok_or_else(|| EdnError::ParseEdn("No value found for attribute uid".to_string()))
+              .and_then(parse_attr_value)?;
 
-              v_uid.zip(v_value)
+            let value = m_value
+              .to_map()
+              .remove(":value")
+              .ok_or_else(|| EdnError::ParseEdn("No value found for attribute value".to_string()))
+              .and_then(parse_attr_value)?;
+
+            match uid {
+              AttrValue::Uid(u) => Ok(EntityAttr { uid: u, value }),
+              // We see this sometimes. I'm not quite sure how to handle it.
+              AttrValue::Nil => Ok(EntityAttr {
+                uid: String::new(),
+                value,
+              }),
+              u => Err(EdnError::ParseEdn(format!(
+                "Unexpected attribute reference {:?}",
+                u
+              ))),
             }
-            _ => {
-              println!("Maps {:?}", v);
-              None
-            }
-          })
-          .and_then(|(uid_edn, value_edn)| {
-            match uid_edn {
-              Edn::Vector(uid_vec) => {
-                let mut uid_vec = uid_vec.to_vec();
-                Some(mem::replace(&mut uid_vec[1], Edn::Empty))
-              }
-              Edn::Nil => Some(Edn::Str(String::new())),
-              _ => {
-                println!("EDN Vec {:?}", uid_edn);
-                None
-              }
-            }
-            .and_then(|uid| match value_edn {
-              Edn::Str(value) => Some((uid, AttrType::Str(value.trim().to_string()))),
-              Edn::Vector(value_vec) => {
-                let mut value_vec = value_vec.to_vec();
-                match mem::replace(&mut value_vec[1], Edn::Empty) {
-                  Edn::Str(value) => Some((uid, AttrType::Uid(value))),
-                  _ => {
-                    println!("Value Vec {:?}", value_vec);
-                    None
-                  }
-                }
-              }
-              _ => {
-                println!("Value Edn {:?}", value_edn);
-                None
-              }
-            })
-          })
-          .and_then(|(uid_edn, value)| match uid_edn {
-            Edn::Str(uid) => Some(EntityAttr { uid, value }),
-            _ => {
-              println!("Last Str {:?}", uid_edn);
-              None
-            }
-          })
-          .ok_or_else(|| EdnError::ParseEdn("Unexpected attr format".to_string()))
+          }
+          (uid, value) => Err(EdnError::ParseEdn(format!(
+            "Unexpected attribute values [{:?}, {:?}]",
+            uid, value
+          ))),
+        }
       }
       _ => Err(EdnError::ParseEdn(format!(
         "Expected attr to be a vector, saw {:?}",
