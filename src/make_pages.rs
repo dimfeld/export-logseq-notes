@@ -471,11 +471,15 @@ pub fn make_pages<'a, 'b>(
 
   // }
 
+  let main_tag_uid = graph
+    .titles
+    .get(&config.tag)
+    .and_then(|tag| graph.blocks.get(tag))
+    .map(|b| b.uid.as_str());
+
   let included_pages_by_title = graph
     .blocks_with_references(&tag_node_ids)
     .filter_map(|block| {
-      let parsed = parse(&block.string).unwrap();
-
       let page = graph.blocks.get(&block.page)?;
 
       if excluded_page_ids.get(&page.id).is_some() || (page.log_id > 0 && !config.allow_daily_notes)
@@ -484,14 +488,8 @@ pub fn make_pages<'a, 'b>(
         return None;
       }
 
-      let slug = match parsed.as_slice() {
-        [Expression::Attribute { name, value }] => {
-          if *name == config.tag {
-            value.iter().map(|e| e.plaintext()).join("")
-          } else {
-            title_to_slug(page.title.as_ref().unwrap())
-          }
-        }
+      let slug = match main_tag_uid.and_then(|uid| page.referenced_attrs.get(uid)) {
+        Some(AttrValue::Str(s)) => s.clone(),
         _ => title_to_slug(page.title.as_ref().unwrap()),
       };
 

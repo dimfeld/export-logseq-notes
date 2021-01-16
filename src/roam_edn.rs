@@ -77,7 +77,7 @@ pub struct EntityAttr {
 fn parse_attr_value(e: Edn) -> Result<AttrValue, EdnError> {
   match e {
     Edn::Nil => Ok(AttrValue::Nil),
-    Edn::Str(s) => Ok(AttrValue::Str(s)),
+    Edn::Str(s) => Ok(AttrValue::Str(s.trim().to_string())),
     Edn::Vector(v) => {
       let mut v = v.to_vec();
       let attr_value = v.pop();
