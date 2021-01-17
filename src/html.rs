@@ -12,7 +12,7 @@ fn escape_char(c: char) -> Option<&'static str> {
 }
 
 pub fn escape(input: &str) -> Cow<str> {
-  for (i, c) in input.chars().enumerate() {
+  for (i, c) in input.char_indices() {
     if let Some(e) = escape_char(c) {
       let mut output = String::with_capacity(input.len() + e.len());
 
@@ -57,5 +57,13 @@ mod tests {
       escape("A simple string that needs no escaping"),
       Cow::Borrowed("A simple string that needs no escaping")
     );
+  }
+
+  #[test]
+  fn unicode() {
+    assert_eq!(
+      escape(r##"client’s • merkle tree"##),
+      Cow::Borrowed(r##"client’s • merkle tree"##)
+    )
   }
 }

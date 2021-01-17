@@ -126,8 +126,7 @@ fn single_brace() {
   assert_eq!(
     parse(input).unwrap(),
     vec![
-      Expression::Text("this is not "),
-      Expression::Text("[a brace ] but "),
+      Expression::Text("this is not [a brace ] but "),
       Expression::Link("this is")
     ]
   )
@@ -139,12 +138,17 @@ fn single_bracket() {
   assert_eq!(
     parse(input).unwrap(),
     vec![
-      Expression::Text("this is not "),
-      Expression::Text("{a bracket } but "),
+      Expression::Text("this is not {a bracket } but "),
       Expression::Link("this is a"),
       Expression::Text("link")
     ]
   )
+}
+
+#[test]
+fn fake_bold() {
+  let input = "this is *not* bold";
+  assert_eq!(parse(input).unwrap(), vec![Text("this is *not* bold")]);
 }
 
 #[test]
@@ -297,10 +301,7 @@ fn attribute_backticks_2() {
 #[test]
 fn exclamation_point() {
   let input = "This is exciting!";
-  assert_eq!(
-    parse(input).unwrap(),
-    vec![Text("This is exciting"), Text("!")]
-  );
+  assert_eq!(parse(input).unwrap(), vec![Text("This is exciting!")]);
 }
 
 #[test]
@@ -384,6 +385,19 @@ fn real_world_7() {
 }
 
 #[test]
+fn real_world_8() {
+  let input = r##"--- **John 13:18-30 - Judas and Jesus** ---"##;
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![
+      Text("--- "),
+      Bold(vec![Text("John 13:18-30 - Judas and Jesus")]),
+      Text(" ---")
+    ]
+  )
+}
+
+#[test]
 fn triple_backtick_1() {
   let input = r##"```javascript\nmap $regex_domain $domain {\n  app defaultskin;\n  tm defaultskin;\n  www defaultskin;\n  '' defaultskin;\n  dev defaultskin;\n  default $regex_domain;\n}```"##;
   assert_eq!(
@@ -414,5 +428,14 @@ fn todo() {
       Expression::BraceDirective("TODO"),
       Expression::Text(" Get things done")
     ]
+  )
+}
+
+#[test]
+fn unicode() {
+  let input = r##"client’s merkle tree"##;
+  assert_eq!(
+    parse(input).unwrap(),
+    vec![Expression::Text("client’s merkle tree")]
   )
 }

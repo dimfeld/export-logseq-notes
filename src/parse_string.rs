@@ -1,10 +1,10 @@
 use nom::{
   branch::alt,
   bytes::complete::{is_not, tag, take_until, take_while1},
-  character::complete::{char, multispace0, one_of},
+  character::complete::{char, multispace0},
   character::{is_newline, is_space},
   combinator::{all_consuming, eof, map, map_parser, opt, recognize},
-  multi::many0,
+  error::context,
   sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
   IResult,
 };
@@ -61,25 +61,6 @@ impl<'a> Expression<'a> {
 
 fn nonws_char(c: char) -> bool {
   !is_space(c as u8) && !is_newline(c as u8)
-}
-
-fn ws_char(c: char) -> bool {
-  is_space(c as u8) || is_newline(c as u8)
-}
-
-fn whitespace(input: &str) -> IResult<&str, &str> {
-  take_while1(ws_char)(input)
-}
-
-fn text(input: &str) -> IResult<&str, &str> {
-  alt((
-    recognize(delimited(multispace0, is_not("#`[{!"), multispace0)),
-    whitespace,
-  ))(input)
-}
-
-fn directive_headfakes(input: &str) -> IResult<&str, &str> {
-  recognize(preceded(one_of("!{["), alt((is_not("{[!#"), eof))))(input)
 }
 
 fn word(input: &str) -> IResult<&str, &str> {
@@ -203,26 +184,54 @@ fn directive(input: &str) -> IResult<&str, Expression> {
       title,
       url,
     }),
-    map(bold, Expression::Bold),
+    map(context("bold", bold), Expression::Bold),
     map(italic, Expression::Italic),
     map(strike, Expression::Strike),
     map(highlight, Expression::Highlight),
   ))(input)
 }
 
-fn parse_one(input: &str) -> IResult<&str, Expression> {
-  // TODO I think a better solution would be to remove "text" from the parser
-  // and just step it through the string until it finds a directive. Then
-  // put all the previous text into an Expression::Text and return the directive as well.
-  alt((
-    directive,
-    map(directive_headfakes, Expression::Text),
-    map(text, Expression::Text),
-  ))(input)
-}
-
+/// Parse a line of text, counting anything that doesn't match a directive as plain text.
 fn parse_inline(input: &str) -> IResult<&str, Vec<Expression>> {
-  many0(parse_one)(input)
+  let mut output = Vec::new();
+
+  let mut current_input = input;
+
+  while !current_input.is_empty() {
+    let mut found_directive = false;
+    for (current_index, _) in current_input.char_indices() {
+      // println!("{} {}", current_index, current_input);
+      match directive(&current_input[current_index..]) {
+        Ok((remaining, parsed)) => {
+          // println!("Matched {:?} remaining {}", parsed, remaining);
+          let leading_text = &current_input[0..current_index];
+          if !leading_text.is_empty() {
+            output.push(Expression::Text(leading_text));
+          }
+          output.push(parsed);
+
+          current_input = remaining;
+          found_directive = true;
+          break;
+        }
+        Err(nom::Err::Error(_)) => {
+          // None of the parsers matched at the current position, so this character is just part of the text.
+          // The iterator will go to the next character so there's nothing to do here.
+        }
+        Err(e) => {
+          // On any other error, just return the error.
+          return Err(e);
+        }
+      }
+    }
+
+    if !found_directive {
+      output.push(Expression::Text(current_input));
+      break;
+    }
+  }
+
+  Ok(("", output))
 }
 
 /// Parses `Name:: Arbitrary [[text]]`
@@ -232,12 +241,12 @@ fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
 }
 
 pub fn parse(input: &str) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
-  all_consuming(alt((
-    map(tag("---"), |_| vec![Expression::HRule]),
-    map(attribute, |(name, value)| {
+  alt((
+    map(all_consuming(tag("---")), |_| vec![Expression::HRule]),
+    map(all_consuming(attribute), |(name, value)| {
       vec![Expression::Attribute { name, value }]
     }),
-    parse_inline,
-  )))(input)
+    all_consuming(parse_inline),
+  ))(input)
   .map(|(_, results)| results)
 }

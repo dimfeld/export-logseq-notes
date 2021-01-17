@@ -433,8 +433,8 @@ pub fn make_pages<'a, 'b>(
   highlighter: &'b syntax_highlight::Highlighter,
   config: &Config,
 ) -> Result<Vec<(String, String)>> {
-  let mut all_filter_tags = vec![config.tag.to_string()];
-  all_filter_tags.extend_from_slice(&config.include);
+  let mut all_filter_tags = vec![config.include.to_string()];
+  all_filter_tags.extend_from_slice(&config.also);
 
   let tag_node_ids = all_filter_tags
     .iter()
@@ -473,9 +473,16 @@ pub fn make_pages<'a, 'b>(
 
   let main_tag_uid = graph
     .titles
-    .get(&config.tag)
+    .get(&config.include)
     .and_then(|tag| graph.blocks.get(tag))
     .map(|b| b.uid.as_str());
+
+  let tags_attr_uid = graph
+    .titles
+    .get(&config.tags_attr)
+    .and_then(|tag| graph.blocks.get(tag))
+    .map(|b| b.uid.as_str())
+    .ok_or_else(|| anyhow!("Could not find tags attribute {}", config.tags_attr))?;
 
   let included_pages_by_title = graph
     .blocks
@@ -486,14 +493,11 @@ pub fn make_pages<'a, 'b>(
       }
 
       let page = graph.blocks.get(&block.page)?;
+      page.title.as_ref()?;
 
       if excluded_page_ids.get(&page.id).is_some() || (page.log_id > 0 && !config.allow_daily_notes)
       {
         println!("Excluded: {}", page.title.as_ref().unwrap());
-        return None;
-      }
-
-      if page.title.is_none() {
         return None;
       }
 
@@ -531,7 +535,7 @@ pub fn make_pages<'a, 'b>(
         id: *id,
         title: title.clone(),
         graph: &graph,
-        filter_tag: &config.tag,
+        filter_tag: &config.include,
         included_pages_by_title: &included_pages_by_title,
         included_pages_by_id: &included_pages_by_id,
         highlighter,
@@ -541,10 +545,19 @@ pub fn make_pages<'a, 'b>(
 
       let block = graph.blocks.get(id).unwrap();
 
+      let tags = block
+        .referenced_attrs
+        .get(tags_attr_uid)
+        .and_then(|attr| match attr {
+          AttrValue::Str(s) => Some(s.split(",").map(|s| s.trim()).collect::<Vec<_>>()),
+          _ => None,
+        })
+        .unwrap_or_else(Vec::new);
+
       let template_data = TemplateArgs {
         title,
         body: &rendered,
-        tags: vec!["tags 1", "tags 2"],
+        tags,
         created_time: block.create_time,
         edited_time: block.edit_time,
       };

@@ -17,16 +17,16 @@ pub struct Config {
     long,
     env,
     default_value = "note-export",
-    help = "Include pages with this hashtag or attribute. This reference will be omitted so that you can use a special tag that should not be rendered in the output. If this is an attribute, the page's filename will be the value of the attribute."
+    help = "Include pages with this hashtag or attribute. This reference will be omitted so that you can use a special tag that should not be rendered in the output. If a page references this as an attribute, the page's filename will be the value of the attribute."
   )]
-  pub tag: String,
+  pub include: String,
 
   #[structopt(
     long,
     env,
     help = "Additional hashtags, links, and attributes to indicate a page should be included. Unlike the primary tag filter, this will not be removed from the output"
   )]
-  pub include: Vec<String>,
+  pub also: Vec<String>,
 
   #[structopt(
     long,
@@ -69,6 +69,15 @@ pub struct Config {
   pub extension: String,
 
   #[structopt(
+    short,
+    long,
+    env,
+    help = "Attribute that indicates tags for a page",
+    default_value = "Tags"
+  )]
+  pub tags_attr: String,
+
+  #[structopt(
     long,
     env,
     help = "If a block contains just a single link and it is to a non-exported page, omit the block"
@@ -88,8 +97,8 @@ impl Config {
     let mut cfg = Config::from_args();
 
     // For environment variables, handle comma separated strings for vectors
-    cfg.include = cfg
-      .include
+    cfg.also = cfg
+      .also
       .iter()
       .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
       .collect::<Vec<_>>();
