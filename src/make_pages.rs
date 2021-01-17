@@ -410,7 +410,7 @@ impl<'a, 'b> Page<'a, 'b> {
 }
 
 fn title_to_slug(s: &str) -> String {
-  s.split_whitespace()
+  s.split(|c: char| c.is_whitespace() || c == '/' || c == '-' || c == ':')
     .map(|word| {
       word
         .chars()
@@ -418,6 +418,7 @@ fn title_to_slug(s: &str) -> String {
         .flat_map(|c| c.to_lowercase())
         .collect::<String>()
     })
+    .filter(|w| !w.is_empty())
     .join("_")
 }
 
