@@ -1,6 +1,7 @@
 mod config;
 mod html;
 mod make_pages;
+mod page;
 mod parse_string;
 mod parse_string_tests;
 mod roam_edn;
