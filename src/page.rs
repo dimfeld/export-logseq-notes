@@ -134,13 +134,19 @@ impl<'a, 'b> Page<'a, 'b> {
             .get(&id)
             .map(|block| {
                 let rendered = self.render_line_without_header(block).unwrap();
+                println!("Rendered {:?}", rendered);
                 let mut row = row.clone();
                 row.push(rendered.0);
-                block
-                    .children
-                    .iter()
-                    .flat_map(|&child| self.descend_table_child(row.clone(), child))
-                    .collect::<Vec<_>>()
+
+                if block.children.is_empty() {
+                    vec![row]
+                } else {
+                    block
+                        .children
+                        .iter()
+                        .flat_map(|&child| self.descend_table_child(row.clone(), child))
+                        .collect::<Vec<_>>()
+                }
             })
             .unwrap_or_else(|| vec![row])
     }
@@ -150,16 +156,16 @@ impl<'a, 'b> Page<'a, 'b> {
         let rows = block
             .children
             .iter()
-            .map(|id| self.descend_table_child(Vec::new(), *id))
+            .flat_map(|id| self.descend_table_child(Vec::new(), *id))
             .map(|row| {
                 let mut output = StringBuilder::with_capacity(row.len() * 3 + 2);
                 output.push("<tr>\n");
                 for cell in row {
                     output.push("<td>");
                     output.push(cell);
-                    output.push("</td>");
+                    output.push("</td>\n");
                 }
-                output.push("</tr>");
+                output.push("</tr>\n");
                 output
             })
             .collect::<Vec<StringBuilder>>();
@@ -167,7 +173,7 @@ impl<'a, 'b> Page<'a, 'b> {
         StringBuilder::Vec(vec![
             StringBuilder::from("<table>\n"),
             StringBuilder::from(rows),
-            StringBuilder::from("</table>"),
+            StringBuilder::from("</table>\n"),
         ])
     }
 

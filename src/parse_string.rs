@@ -192,7 +192,7 @@ fn directive(input: &str) -> IResult<&str, Expression> {
 
 /// Parse a line of text, counting anything that doesn't match a directive as plain text.
 fn parse_inline(input: &str) -> IResult<&str, Vec<Expression>> {
-    let mut output = Vec::new();
+    let mut output = Vec::with_capacity(4);
 
     let mut current_input = input;
 

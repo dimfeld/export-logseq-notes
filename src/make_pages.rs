@@ -101,7 +101,7 @@ pub fn make_pages<'a, 'b>(
             if excluded_page_ids.get(&page.id).is_some()
                 || (page.log_id > 0 && !config.allow_daily_notes)
             {
-                println!("Excluded: {}", page.title.as_ref().unwrap());
+                // println!("Excluded: {}", page.title.as_ref().unwrap());
                 return None;
             }
 
@@ -181,7 +181,7 @@ pub fn make_pages<'a, 'b>(
             writer.write_all(full_page.as_bytes())?;
             writer.flush()?;
 
-            println!("Wrote: \"{}\" to {}", title, slug);
+            // println!("Wrote: \"{}\" to {}", title, slug);
 
             Ok((
                 slug.clone(),
