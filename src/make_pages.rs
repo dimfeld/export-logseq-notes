@@ -96,7 +96,12 @@ pub fn make_pages<'a, 'b>(
             }
 
             let page = graph.blocks.get(&block.page)?;
-            page.title.as_ref()?;
+            let title = page.title.as_ref()?;
+
+            if title.starts_with("roam/") {
+                // Don't include pages in roam/...
+                return None;
+            }
 
             if excluded_page_ids.get(&page.id).is_some()
                 || (page.log_id > 0 && !config.allow_daily_notes)
@@ -113,7 +118,7 @@ pub fn make_pages<'a, 'b>(
             };
 
             Some((
-                page.title.clone().unwrap(),
+                title.clone(),
                 IdSlugUid {
                     id: page.id,
                     slug,
@@ -181,7 +186,7 @@ pub fn make_pages<'a, 'b>(
             writer.write_all(full_page.as_bytes())?;
             writer.flush()?;
 
-            // println!("Wrote: \"{}\" to {}", title, slug);
+            println!("Wrote: \"{}\" to {}", title, slug);
 
             Ok((
                 slug.clone(),

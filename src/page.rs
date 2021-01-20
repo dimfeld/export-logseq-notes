@@ -134,7 +134,6 @@ impl<'a, 'b> Page<'a, 'b> {
             .get(&id)
             .map(|block| {
                 let rendered = self.render_line_without_header(block).unwrap();
-                println!("Rendered {:?}", rendered);
                 let mut row = row.clone();
                 row.push(rendered.0);
 
