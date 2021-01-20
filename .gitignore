@@ -1,4 +1,4 @@
 /target
 /pages
-graph.edn
+*.edn
 export-roam-notes.cfg
