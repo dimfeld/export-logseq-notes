@@ -279,7 +279,7 @@ impl Graph {
                 (":block/string", Edn::Str(v)) => current_block.string = v,
                 (":block/uid", Edn::Str(v)) => current_block.uid = v,
                 (":block/heading", value) => current_block.heading = value.to_uint().unwrap(),
-                (":children/view-type", Edn::Str(v)) => {
+                (":children/view-type", Edn::Key(v)) => {
                     current_block.view_type = ViewType::try_from(v.as_str())?
                 }
                 (":block/children", value) => current_block.children.push(value.to_uint().unwrap()),
