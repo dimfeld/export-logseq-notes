@@ -114,7 +114,7 @@ impl<'a, 'b> Page<'a, 'b> {
         self
       .graph
       .block_from_uid(s)
-      .map(|block| self.render_block_and_children(block.id, 0).map(|rendered| {
+      .map(|block| self.render_block_and_children(block, 0).map(|rendered| {
         StringBuilder::from(vec![
           StringBuilder::from("<div class=\"roam-block-container rm-block rm-block--open rm-not-focused block-bullet-view\">"),
           rendered,
@@ -158,21 +158,21 @@ impl<'a, 'b> Page<'a, 'b> {
             .flat_map(|id| self.descend_table_child(Vec::new(), *id))
             .map(|row| {
                 let mut output = StringBuilder::with_capacity(row.len() * 3 + 2);
-                output.push("<tr>\n");
+                output.push("  <tr>\n");
                 for cell in row {
-                    output.push("<td>");
+                    output.push("    <td>");
                     output.push(cell);
                     output.push("</td>\n");
                 }
-                output.push("</tr>\n");
+                output.push("  </tr>\n");
                 output
             })
             .collect::<Vec<StringBuilder>>();
 
         StringBuilder::Vec(vec![
-            StringBuilder::from("<table>\n"),
+            StringBuilder::from("\n<div class=\"roam-table\"><table><tbody>\n"),
             StringBuilder::from(rows),
-            StringBuilder::from("</table>\n"),
+            StringBuilder::from("</tbody></table></div>\n"),
         ])
     }
 
@@ -301,7 +301,8 @@ impl<'a, 'b> Page<'a, 'b> {
                 self.included_pages_by_title
                     .get(s)
                     .map(|IdSlugUid { id: block_id, .. }| {
-                        self.render_block_and_children(*block_id, 0)
+                        let block = self.graph.blocks.get(block_id).unwrap();
+                        self.render_block_and_children(block, 0)
                             .map(|embedded_page| {
                                 StringBuilder::from(vec![
                                     StringBuilder::from(format!(
@@ -363,11 +364,9 @@ impl<'a, 'b> Page<'a, 'b> {
 
     fn render_block_and_children(
         &self,
-        block_id: usize,
+        block: &'a Block,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let block = self.graph.blocks.get(&block_id).unwrap();
-
         let (rendered, render_children, single_unexported_link) = self.render_line(block)?;
         let render_children = render_children && !block.children.is_empty();
 
@@ -406,8 +405,15 @@ impl<'a, 'b> Page<'a, 'b> {
             };
             result.push(element);
 
-            for child in &block.children {
-                result.push(self.render_block_and_children(*child, depth + 2)?);
+            let mut children = block
+                .children
+                .iter()
+                .filter_map(|id| self.graph.blocks.get(id))
+                .collect::<Vec<_>>();
+            children.sort_by_key(|b| b.order);
+
+            for child in &children {
+                result.push(self.render_block_and_children(child, depth + 2)?);
             }
 
             result.push(write_depth(depth + 1));
@@ -432,7 +438,8 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     pub fn render(&self) -> Result<String> {
-        self.render_block_and_children(self.id, 0)
+        let block = self.graph.blocks.get(&self.id).unwrap();
+        self.render_block_and_children(block, 0)
             .map(|results| results.build())
     }
 }
