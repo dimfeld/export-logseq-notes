@@ -88,9 +88,9 @@ pub struct Config {
     #[structopt(
         long,
         env,
-        help = "If a block contains just a single link and it is to a non-exported page, omit the block"
+        help = "If a block contains only links and hashtags, omit any links to unexported pages."
     )]
-    pub omit_blocks_with_only_unexported_links: bool, // TODO
+    pub filter_link_only_blocks: bool, // TODO
 
     #[structopt(long, env, help = "Include page embeds of non-exported pages")]
     pub include_all_page_embeds: bool, // TODO

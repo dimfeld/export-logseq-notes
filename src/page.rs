@@ -31,7 +31,7 @@ pub struct Page<'a, 'b> {
 
     pub filter_tag: &'a str,
     pub graph: &'a Graph,
-    pub omit_blocks_with_only_unexported_links: bool,
+    pub filter_link_only_blocks: bool,
     pub included_pages_by_title: &'a FxHashMap<String, IdSlugUid>,
     pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
     pub highlighter: &'b syntax_highlight::Highlighter,
@@ -42,7 +42,7 @@ fn write_depth(depth: usize) -> String {
 }
 
 impl<'a, 'b> Page<'a, 'b> {
-    fn link_if_allowed(&self, s: &'a str) -> StringBuilder<'a> {
+    fn link_if_allowed(&self, s: &'a str, omit_unexported_links: bool) -> StringBuilder<'a> {
         self.included_pages_by_title
             .get(s)
             .map(|IdSlugUid { slug, .. }| {
@@ -52,7 +52,13 @@ impl<'a, 'b> Page<'a, 'b> {
                     slug = html::escape(slug)
                 ))
             })
-            .unwrap_or_else(|| StringBuilder::from(html::escape(s)))
+            .unwrap_or_else(|| {
+                if omit_unexported_links {
+                    StringBuilder::Empty
+                } else {
+                    StringBuilder::from(html::escape(s))
+                }
+            })
     }
 
     fn render_block_ref(
@@ -62,44 +68,44 @@ impl<'a, 'b> Page<'a, 'b> {
     ) -> Result<(StringBuilder<'a>, bool)> {
         let block = self.graph.block_from_uid(s);
         match block {
-            Some(block) => self
-                .render_line_without_header(block)
-                .map(|(result, _, _)| {
-                    match self.included_pages_by_id.get(&block.page) {
-                        Some(page) => {
-                            // When the referenced page is exported, make this a link to the block.
-                            let linked = StringBuilder::Vec(vec![
-                                StringBuilder::from(format!(
-                                    r##"<a class="block-ref" href="{page}#{block}">"##,
-                                    page = page.slug,
-                                    block = block.uid
-                                )),
-                                result,
-                                StringBuilder::from("</a>"),
-                            ]);
+            Some(block) => self.render_line_without_header(block).map(|(result, _)| {
+                match self.included_pages_by_id.get(&block.page) {
+                    Some(page) => {
+                        // When the referenced page is exported, make this a link to the block.
+                        let linked = StringBuilder::Vec(vec![
+                            StringBuilder::from(format!(
+                                r##"<a class="block-ref" href="{page}#{block}">"##,
+                                page = page.slug,
+                                block = block.uid
+                            )),
+                            result,
+                            StringBuilder::from("</a>"),
+                        ]);
 
-                            (linked, true)
-                        }
-                        None => (result, true),
+                        (linked, true)
                     }
-                }),
+                    None => (result, true),
+                }
+            }),
             None => {
                 // Block ref syntax can also be expandable text. So if we don't match on a block then just render it.
                 parse(s)
                     .map_err(|e| anyhow!("Parse Error: {}", e))
-                    .and_then(|expressions| self.render_expressions(containing_block, expressions))
+                    .and_then(|expressions| {
+                        self.render_expressions(containing_block, expressions, false)
+                    })
             }
         }
     }
 
-    fn hashtag(&self, s: &'a str, dot: bool) -> StringBuilder<'a> {
+    fn hashtag(&self, s: &'a str, dot: bool, omit_unexported_links: bool) -> StringBuilder<'a> {
         if s == self.filter_tag {
             // Don't render the primary export tag
             return StringBuilder::Empty;
         }
 
-        let anchor = self.link_if_allowed(s);
-        if dot {
+        let anchor = self.link_if_allowed(s, omit_unexported_links);
+        if dot && !anchor.is_empty() {
             StringBuilder::Vec(vec![
                 StringBuilder::from(format!("<span class=\"{}\">", s)),
                 anchor,
@@ -195,7 +201,7 @@ impl<'a, 'b> Page<'a, 'b> {
         class: &'a str,
         e: Vec<Expression<'a>>,
     ) -> Result<(StringBuilder<'a>, bool)> {
-        self.render_expressions(block, e).map(|(s, rc)| {
+        self.render_expressions(block, e, false).map(|(s, rc)| {
             (
                 StringBuilder::from(vec![
                     StringBuilder::from(format!(
@@ -215,10 +221,11 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         e: Vec<Expression<'a>>,
+        omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let num_exprs = e.len();
         e.into_iter()
-            .map(|e| self.render_expression(block, e))
+            .map(|e| self.render_expression(block, e, omit_unexported_links))
             .fold(
                 Ok((StringBuilder::with_capacity(num_exprs), true)),
                 |acc, r| {
@@ -242,25 +249,27 @@ impl<'a, 'b> Page<'a, 'b> {
             return Ok((StringBuilder::Empty, true));
         }
 
-        self.render_expressions(block, contents).map(|(s, rc)| {
-            let mut output = StringBuilder::with_capacity(5);
-            output.push(r##"<span><strong class="rm-attr-ref">"##);
-            output.push(html::escape(name));
-            output.push(":</strong>");
-            output.push(s);
-            output.push("</span>");
+        self.render_expressions(block, contents, false)
+            .map(|(s, rc)| {
+                let mut output = StringBuilder::with_capacity(5);
+                output.push(r##"<span><strong class="rm-attr-ref">"##);
+                output.push(html::escape(name));
+                output.push(":</strong>");
+                output.push(s);
+                output.push("</span>");
 
-            (output, rc)
-        })
+                (output, rc)
+            })
     }
 
     fn render_expression(
         &self,
         block: &'a Block,
         e: Expression<'a>,
+        omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let (rendered, render_children) = match e {
-            Expression::Hashtag(s, dot) => (self.hashtag(s, dot), true),
+            Expression::Hashtag(s, dot) => (self.hashtag(s, dot, omit_unexported_links), true),
             Expression::Image { alt, url } => (
                 format!(
                     r##"<img title="{alt}" src="{url}" />"##,
@@ -270,7 +279,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 .into(),
                 true,
             ),
-            Expression::Link(s) => (self.link_if_allowed(s), true),
+            Expression::Link(s) => (self.link_if_allowed(s, omit_unexported_links), true),
             Expression::MarkdownLink { title, url } => (
                 format!(
                     r##"<a href="{url}">{title}</a>"##,
@@ -325,25 +334,24 @@ impl<'a, 'b> Page<'a, 'b> {
         Ok((rendered, render_children))
     }
 
-    fn render_line_without_header(
-        &self,
-        block: &'a Block,
-    ) -> Result<(StringBuilder<'a>, bool, bool)> {
+    fn render_line_without_header(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
         let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
 
-        let single_unexported_link = match parsed.as_slice() {
-            &[Expression::Link(title)] => self.included_pages_by_title.get(title).is_some(),
-            &[Expression::Hashtag(title, _)] => self.included_pages_by_title.get(title).is_some(),
-            _ => false,
-        };
+        let filter_links = self.filter_link_only_blocks
+            && parsed.iter().all(|e| match e {
+                Expression::Link(_) => true,
+                Expression::Hashtag(_, _) => true,
+                Expression::Text(t) => t.trim().is_empty(),
+                _ => false,
+            });
 
-        self.render_expressions(block, parsed)
-            .map(|(strings, render_children)| (strings, render_children, single_unexported_link))
+        self.render_expressions(block, parsed, filter_links)
+            .map(|(strings, render_children)| (strings, render_children))
     }
 
-    fn render_line(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool, bool)> {
+    fn render_line(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
         self.render_line_without_header(block).map(|result| {
-            if block.heading > 0 {
+            if block.heading > 0 && !result.0.is_blank() {
                 (
                     StringBuilder::Vec(vec![
                         StringBuilder::from(format!(
@@ -354,7 +362,6 @@ impl<'a, 'b> Page<'a, 'b> {
                         StringBuilder::from("</div>"),
                     ]),
                     result.1,
-                    result.2,
                 )
             } else {
                 result
@@ -367,12 +374,10 @@ impl<'a, 'b> Page<'a, 'b> {
         block: &'a Block,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let (rendered, render_children, single_unexported_link) = self.render_line(block)?;
+        let (rendered, render_children) = self.render_line(block)?;
         let render_children = render_children && !block.children.is_empty();
 
-        let render_line = !single_unexported_link || !self.omit_blocks_with_only_unexported_links;
-
-        if (rendered.is_empty() || !render_line) && !render_children {
+        if rendered.is_blank() && !render_children {
             return Ok(StringBuilder::Empty);
         }
 
@@ -385,9 +390,7 @@ impl<'a, 'b> Page<'a, 'b> {
             result.push(format!(r##"<li id="{id}">"##, id = block.uid));
         }
 
-        if render_line {
-            result.push(rendered);
-        }
+        result.push(rendered);
 
         // println!(
         //   "Block {} renderchildren: {}, children {:?}",

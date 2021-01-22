@@ -152,8 +152,7 @@ pub fn make_pages<'a, 'b>(
                 id: *id,
                 title: title.clone(),
                 graph: &graph,
-                omit_blocks_with_only_unexported_links: config
-                    .omit_blocks_with_only_unexported_links,
+                filter_link_only_blocks: config.filter_link_only_blocks,
                 filter_tag: &config.include,
                 included_pages_by_title: &included_pages_by_title,
                 included_pages_by_id: &included_pages_by_id,
