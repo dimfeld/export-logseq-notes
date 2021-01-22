@@ -254,7 +254,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 let mut output = StringBuilder::with_capacity(5);
                 output.push(r##"<span><strong class="rm-attr-ref">"##);
                 output.push(html::escape(name));
-                output.push(":</strong>");
+                output.push(":</strong> ");
                 output.push(s);
                 output.push("</span>");
 

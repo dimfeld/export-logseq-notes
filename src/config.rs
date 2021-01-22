@@ -7,7 +7,7 @@ pub struct Config {
     pub config: Option<PathBuf>,
 
     #[structopt(short, long, env, default_value = "graph.edn")]
-    pub file: String,
+    pub file: PathBuf,
 
     #[structopt(short, long, env, default_value = "pages", help = "Output directory")]
     pub output: PathBuf,
