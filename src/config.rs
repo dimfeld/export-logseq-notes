@@ -86,7 +86,7 @@ pub struct Config {
     pub tags_attr: String,
 
     #[structopt(long, env, help = "Tag a page with all included hashtags")]
-    pub use_all_hashtags: bool; // TODO
+    pub use_all_hashtags: bool, // TODO
 
     #[structopt(
         long,
