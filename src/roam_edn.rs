@@ -298,6 +298,7 @@ impl Graph {
                 (":edit/time", value) => current_block.edit_time = value.to_uint().unwrap(),
                 (":entity/attrs", Edn::Set(attrs)) => {
                     // List of attributes referenced within a page
+                    // TODO Can be multiple values for a uid
                     current_block.referenced_attrs = attrs
                         .to_set()
                         .into_iter()

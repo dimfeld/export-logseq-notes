@@ -168,9 +168,16 @@ pub fn make_pages<'a, 'b>(
                 .get(tags_attr_uid)
                 .and_then(|attr| match attr {
                     AttrValue::Str(s) => Some(s.split(",").map(|s| s.trim()).collect::<Vec<_>>()),
+                    AttrValue::Uid(u) => graph
+                        .blocks_by_uid
+                        .get(u)
+                        .and_then(|id| graph.blocks.get(id))
+                        .and_then(|block| block.title.as_ref())
+                        .map(|title| vec![title.as_str()]),
                     _ => None,
                 })
                 .unwrap_or_else(Vec::new);
+            println!("{:?} {:?}", tags, block.referenced_attrs);
 
             let template_data = TemplateArgs {
                 title,

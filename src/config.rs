@@ -85,12 +85,15 @@ pub struct Config {
     )]
     pub tags_attr: String,
 
+    #[structopt(long, env, help = "Tag a page with all included hashtags")]
+    pub use_all_hashtags: bool; // TODO
+
     #[structopt(
         long,
         env,
         help = "If a block contains only links and hashtags, omit any links to unexported pages."
     )]
-    pub filter_link_only_blocks: bool, // TODO
+    pub filter_link_only_blocks: bool,
 
     #[structopt(long, env, help = "Include page embeds of non-exported pages")]
     pub include_all_page_embeds: bool, // TODO
