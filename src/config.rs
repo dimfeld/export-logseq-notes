@@ -12,13 +12,16 @@ pub struct Config {
     #[structopt(short, long, env, default_value = "pages", help = "Output directory")]
     pub output: PathBuf,
 
+    #[structopt(long, env, help = "Base URL to apply to relative hyperlinks")]
+    pub url_base: Option<String>, // TODO
+
     #[structopt(
         short,
         long,
         env,
-        help = "Generate namespaced files in the same directory"
+        help = "Generate namespaces in their own directories"
     )]
-    pub flat_output: bool, // TODO
+    pub namespace_dirs: bool, // TODO
 
     #[structopt(
         short,

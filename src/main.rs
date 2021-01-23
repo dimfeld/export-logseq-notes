@@ -1,5 +1,6 @@
 mod config;
 mod html;
+mod links;
 mod make_pages;
 mod page;
 mod parse_string;
