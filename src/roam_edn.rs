@@ -49,7 +49,7 @@ pub struct Block {
     pub page: usize,
     pub order: usize,
     pub refs: SmallVec<[usize; 4]>,
-    pub referenced_attrs: FxHashMap<String, AttrValue>,
+    pub referenced_attrs: FxHashMap<String, SmallVec<[AttrValue; 4]>>,
 
     /** Nonzero indicates that this is a daily log page (I think) */
     pub log_id: usize,
@@ -298,12 +298,24 @@ impl Graph {
                 (":edit/time", value) => current_block.edit_time = value.to_uint().unwrap(),
                 (":entity/attrs", Edn::Set(attrs)) => {
                     // List of attributes referenced within a page
-                    // TODO Can be multiple values for a uid
-                    current_block.referenced_attrs = attrs
+
+                    let mut grouped: FxHashMap<String, SmallVec<[AttrValue; 4]>> =
+                        FxHashMap::default();
+                    let attr_values = attrs
                         .to_set()
                         .into_iter()
-                        .map(|a| EntityAttr::try_from(a).map(|ea| (ea.uid, ea.value)))
-                        .collect::<Result<FxHashMap<_, _>, _>>()?;
+                        .map(|a| EntityAttr::try_from(a).map(|ea| (ea.uid, ea.value)));
+
+                    for attr_result in attr_values {
+                        let (uid, value) = attr_result?;
+                        if let AttrValue::Nil = value {
+                            continue;
+                        }
+
+                        grouped.entry(uid).or_default().push(value);
+                    }
+
+                    current_block.referenced_attrs = grouped;
                 }
                 // Just ignore other attributes for now
                 // ":attrs/lookup"

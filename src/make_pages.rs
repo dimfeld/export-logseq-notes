@@ -78,7 +78,8 @@ pub fn make_pages<'a, 'b>(
         .titles
         .get(&config.include)
         .and_then(|tag| graph.blocks.get(tag))
-        .map(|b| b.uid.as_str());
+        .map(|b| b.uid.as_str())
+        .unwrap_or_default();
 
     let tags_attr_uid = graph
         .titles
@@ -110,7 +111,7 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            let slug = match main_tag_uid.and_then(|uid| page.referenced_attrs.get(uid)) {
+            let slug = match page.referenced_attrs.get(main_tag_uid).map(|v| &v[0]) {
                 // The page sets the filename manually.
                 Some(AttrValue::Str(s)) => s.clone(),
                 // Otherwise generate it from the title.
@@ -166,15 +167,27 @@ pub fn make_pages<'a, 'b>(
             let tags = block
                 .referenced_attrs
                 .get(tags_attr_uid)
-                .and_then(|attr| match attr {
-                    AttrValue::Str(s) => Some(s.split(",").map(|s| s.trim()).collect::<Vec<_>>()),
-                    AttrValue::Uid(u) => graph
-                        .blocks_by_uid
-                        .get(u)
-                        .and_then(|id| graph.blocks.get(id))
-                        .and_then(|block| block.title.as_ref())
-                        .map(|title| vec![title.as_str()]),
-                    _ => None,
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter(|attr| match attr {
+                            AttrValue::Str(_) => true,
+                            AttrValue::Uid(_) => true,
+                            _ => false,
+                        })
+                        .flat_map(|attr| match attr {
+                            AttrValue::Str(s) => s.split(",").map(|s| s.trim()).collect::<Vec<_>>(),
+                            AttrValue::Uid(u) => graph
+                                .blocks_by_uid
+                                .get(u)
+                                .and_then(|id| graph.blocks.get(id))
+                                .filter(|block| block.uid != main_tag_uid)
+                                .and_then(|block| block.title.as_ref())
+                                .map(|title| vec![title.as_str()])
+                                .unwrap_or_else(Vec::new),
+                            _ => Vec::new(),
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .unwrap_or_else(Vec::new);
             println!("{:?} {:?}", tags, block.referenced_attrs);
