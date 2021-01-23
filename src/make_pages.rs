@@ -68,12 +68,6 @@ pub fn make_pages<'a, 'b>(
         .chain(exclude_tag_ids.iter().copied())
         .collect::<FxHashSet<usize>>();
 
-    // let block_iter = if config.include_all {
-    //   graph.pages()
-    // } else {
-
-    // }
-
     let main_tag_uid = graph
         .titles
         .get(&config.include)
@@ -81,12 +75,18 @@ pub fn make_pages<'a, 'b>(
         .map(|b| b.uid.as_str())
         .unwrap_or_default();
 
-    let tags_attr_uid = graph
-        .titles
-        .get(&config.tags_attr)
-        .and_then(|tag| graph.blocks.get(tag))
-        .map(|b| b.uid.as_str())
-        .ok_or_else(|| anyhow!("Could not find tags attribute {}", config.tags_attr))?;
+    let tags_attr_uid = config
+        .tags_attr
+        .as_ref()
+        .map(|tags_attr| {
+            graph
+                .titles
+                .get(tags_attr)
+                .and_then(|tag| graph.blocks.get(tag))
+                .map(|b| b.uid.as_str())
+                .ok_or_else(|| anyhow!("Could not find tags attribute {}", tags_attr))
+        })
+        .transpose()?;
 
     let included_pages_by_title = graph
         .blocks
@@ -164,9 +164,8 @@ pub fn make_pages<'a, 'b>(
 
             let block = graph.blocks.get(id).unwrap();
 
-            let tags = block
-                .referenced_attrs
-                .get(tags_attr_uid)
+            let tags = tags_attr_uid
+                .and_then(|uid| block.referenced_attrs.get(uid))
                 .map(|values| {
                     values
                         .iter()

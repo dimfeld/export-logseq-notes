@@ -76,14 +76,8 @@ pub struct Config {
     )]
     pub extension: String,
 
-    #[structopt(
-        short,
-        long,
-        env,
-        help = "Attribute that indicates tags for a page",
-        default_value = "Tags"
-    )]
-    pub tags_attr: String,
+    #[structopt(short, long, env, help = "Attribute that indicates tags for a page")]
+    pub tags_attr: Option<String>,
 
     #[structopt(long, env, help = "Tag a page with all included hashtags")]
     pub use_all_hashtags: bool, // TODO
