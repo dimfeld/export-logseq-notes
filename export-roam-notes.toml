@@ -46,6 +46,9 @@ exclude = [
 # template to populate front matter for a CMS
 tags_attr = "Tags"
 
+# Use all hashtags in a page when gathering tags, not just values of the tags_attr
+use_all_hashtags = true
+
 # When gathering tags for a page template, ignore these tags
 # For example, your book note pages may have lines like this:
 # Tags:: #Books #[[In Progress]] #Finance
