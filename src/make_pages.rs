@@ -196,6 +196,12 @@ pub fn make_pages<'a, 'b>(
                 })
                 .unwrap_or_else(FxHashSet::default);
 
+            let hashtags = if config.use_all_hashtags {
+                hashtags
+            } else {
+                FxHashSet::default()
+            };
+
             let tags = tags_set
                 .union(&hashtags)
                 .map(|&s| s)
