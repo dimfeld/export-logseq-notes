@@ -128,6 +128,12 @@ impl Config {
             .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
             .collect::<Vec<_>>();
 
+        cfg.exclude_tags = cfg
+            .exclude_tags
+            .iter()
+            .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
+            .collect::<Vec<_>>();
+
         cfg
     }
 }
