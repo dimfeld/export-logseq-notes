@@ -13,7 +13,7 @@ pub struct Config {
     pub output: PathBuf,
 
     #[structopt(long, env, help = "Base URL to apply to relative hyperlinks")]
-    pub url_base: Option<String>, // TODO
+    pub base_url: Option<String>, // TODO
 
     #[structopt(
         short,
@@ -35,18 +35,22 @@ pub struct Config {
     #[structopt(
         long,
         env,
-        help = "Additional hashtags, links, and attributes to indicate a page should be included. Unlike the primary tag filter, this will not be removed from the output"
+        help = "Additional hashtags, links, and attributes to indicate a page should be included. Unlike the primary tag filter, these will not be removed from the output"
     )]
     pub also: Vec<String>,
 
     #[structopt(
         long,
         env,
-        help = "Instead of using tags, include all pages, except for daily notes pages (controlled by --include-daily-logs) and pages with excluded tags"
+        help = "Instead of using tags, include all pages, except for daily notes pages (controlled by --allow-daily-notes) and pages with excluded tags"
     )]
     pub include_all: bool,
 
-    #[structopt(long, env, help = "Make daily notes pages eligible to be included.")]
+    #[structopt(
+        long,
+        env,
+        help = "Make daily notes pages eligible to be included. The other inclusion criteria still apply."
+    )]
     pub allow_daily_notes: bool,
 
     #[structopt(
@@ -88,7 +92,7 @@ pub struct Config {
     #[structopt(
         long,
         env,
-        help = "If a block contains only links and hashtags, omit any links to unexported pages."
+        help = "If a block contains only links and hashtags, omit any references to unexported pages."
     )]
     pub filter_link_only_blocks: bool,
 
