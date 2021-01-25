@@ -21,7 +21,6 @@ Coming soon!
 ## Remaining work to be usable
 
 - [ ] Support base URLs in hyperlinks
-- [ ] Parser support for unadorned URLs
 - [ ] Real config file format (TOML?)
 
 Once all these are done, I'll upload a batch of notes to [my website](https://imfeld.dev/notes).

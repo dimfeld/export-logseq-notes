@@ -1,17 +1,19 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while1},
-    character::complete::{char, multispace0},
+    bytes::complete::{is_not, tag, tag_no_case, take_until, take_while1},
+    character::complete::{char, multispace0, multispace1, one_of},
     character::{is_newline, is_space},
     combinator::{all_consuming, eof, map, map_parser, opt, recognize},
     error::context,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
     IResult,
 };
+use urlocator::{UrlLocation, UrlLocator};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expression<'a> {
     Text(&'a str),
+    RawHyperlink(&'a str),
     Image {
         alt: &'a str,
         url: &'a str,
@@ -48,6 +50,7 @@ impl<'a> Expression<'a> {
             Expression::Hashtag(s, _) => s,
             Expression::Link(s) => s,
             Expression::MarkdownLink { title, .. } => title,
+            Expression::RawHyperlink(s) => s,
             Expression::BlockRef(s) => s,
             _ => "",
         }
@@ -170,6 +173,30 @@ fn image(input: &str) -> IResult<&str, (&str, &str)> {
     preceded(char('!'), markdown_link)(input)
 }
 
+/// Parses urls not inside a directive
+fn raw_url(input: &str) -> IResult<&str, &str> {
+    let mut locator = UrlLocator::new();
+    let mut end = 0;
+    for c in input.chars() {
+        match locator.advance(c) {
+            UrlLocation::Url(s, e) => {
+                end = s as usize;
+            }
+            UrlLocation::Reset => break,
+            UrlLocation::Scheme => {}
+        }
+    }
+
+    if end > 0 {
+        Ok((&input[end..], &input[0..end]))
+    } else {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::RegexpFind,
+        )))
+    }
+}
+
 fn directive(input: &str) -> IResult<&str, Expression> {
     alt((
         map(triple_backtick, Expression::TripleBacktick),
@@ -187,6 +214,7 @@ fn directive(input: &str) -> IResult<&str, Expression> {
         map(italic, Expression::Italic),
         map(strike, Expression::Strike),
         map(highlight, Expression::Highlight),
+        map(raw_url, Expression::RawHyperlink),
     ))(input)
 }
 

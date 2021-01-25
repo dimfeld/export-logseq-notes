@@ -319,6 +319,10 @@ impl<'a, 'b> Page<'a, 'b> {
                 .into(),
                 true,
             ),
+            Expression::RawHyperlink(h) => (
+                format!(r##"<a href="{url}">{url}</a>"##, url = html::escape(h),).into(),
+                true,
+            ),
             Expression::SingleBacktick(s) => {
                 (format!("<code>{}</code>", html::escape(s)).into(), true)
             }
