@@ -34,7 +34,7 @@ pub fn make_pages<'a, 'b>(
     graph: &'a Graph,
     handlebars: &handlebars::Handlebars,
     highlighter: &'b syntax_highlight::Highlighter,
-    config: &Config,
+    config: &'a Config,
 ) -> Result<FxHashMap<String, TitleAndUid>> {
     let mut all_filter_tags = vec![config.include.to_string()];
     all_filter_tags.extend_from_slice(&config.also);
@@ -158,7 +158,9 @@ pub fn make_pages<'a, 'b>(
             let page = Page {
                 id: *id,
                 title: title.clone(),
+                slug: &slug,
                 graph: &graph,
+                base_url: &config.base_url,
                 filter_link_only_blocks: config.filter_link_only_blocks,
                 filter_tag: &config.include,
                 included_pages_by_title: &included_pages_by_title,
@@ -208,7 +210,7 @@ pub fn make_pages<'a, 'b>(
                 .filter(|&s| s != config.include && exclude_tag_names.get(s).is_none())
                 .collect::<Vec<_>>();
 
-            println!("{:?} {:?}", title, tags);
+            // println!("{:?} {:?}", title, tags);
 
             let template_data = TemplateArgs {
                 title,

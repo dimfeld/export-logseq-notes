@@ -134,6 +134,13 @@ impl Config {
             .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
             .collect::<Vec<_>>();
 
+        cfg.base_url = cfg.base_url.map(|url| {
+            let prefix = if url.starts_with('/') { "" } else { "/" };
+            let suffix = if url.ends_with('/') { "" } else { "/" };
+
+            format!("{}{}{}", prefix, url, suffix)
+        });
+
         cfg
     }
 }

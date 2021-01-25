@@ -1,4 +1,5 @@
 use crate::html;
+use crate::links;
 use crate::parse_string::{parse, Expression};
 use crate::roam_edn::*;
 use crate::string_builder::StringBuilder;
@@ -28,9 +29,11 @@ pub struct TitleAndUid {
 pub struct Page<'a, 'b> {
     pub id: usize,
     pub title: String,
+    pub slug: &'a str,
 
     pub filter_tag: &'a str,
     pub graph: &'a Graph,
+    pub base_url: &'a Option<String>,
     pub filter_link_only_blocks: bool,
     pub included_pages_by_title: &'a FxHashMap<String, IdSlugUid>,
     pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
@@ -46,10 +49,11 @@ impl<'a, 'b> Page<'a, 'b> {
         self.included_pages_by_title
             .get(s)
             .map(|IdSlugUid { slug, .. }| {
+                let url = links::link_path(self.slug, slug, self.base_url.as_deref());
                 StringBuilder::from(format!(
                     r##"<a href="{slug}">{title}</a>"##,
                     title = html::escape(s),
-                    slug = html::escape(slug)
+                    slug = html::escape(url.as_ref())
                 ))
             })
             .unwrap_or_else(|| {
