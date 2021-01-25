@@ -63,6 +63,13 @@ pub struct Config {
     #[structopt(
         long,
         env,
+        help = "Exclude these values from the page template's `tags` list"
+    )]
+    pub exclude_tags: Vec<String>,
+
+    #[structopt(
+        long,
+        env,
         help = "When highlighting code, prefix class names with this value"
     )]
     pub highlight_class_prefix: Option<String>,

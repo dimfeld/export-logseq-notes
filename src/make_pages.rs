@@ -50,7 +50,7 @@ pub fn make_pages<'a, 'b>(
         })
         .collect::<Result<Vec<usize>>>()?;
 
-    let exclude_tag_ids = config
+    let exclude_page_tag_ids = config
         .exclude
         .iter()
         .map(|tag| {
@@ -63,10 +63,16 @@ pub fn make_pages<'a, 'b>(
         .collect::<Result<Vec<usize>>>()?;
 
     let excluded_page_ids = graph
-        .blocks_with_references(&exclude_tag_ids)
+        .blocks_with_references(&exclude_page_tag_ids)
         .map(|block| block.page)
-        .chain(exclude_tag_ids.iter().copied())
+        .chain(exclude_page_tag_ids.iter().copied())
         .collect::<FxHashSet<usize>>();
+
+    let exclude_tag_names = config
+        .exclude_tags
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<FxHashSet<_>>();
 
     let main_tag_uid = graph
         .titles
@@ -160,11 +166,11 @@ pub fn make_pages<'a, 'b>(
                 highlighter,
             };
 
-            let rendered = page.render()?;
+            let (rendered, hashtags) = page.render()?;
 
             let block = graph.blocks.get(id).unwrap();
 
-            let tags = tags_attr_uid
+            let tags_set = tags_attr_uid
                 .and_then(|uid| block.referenced_attrs.get(uid))
                 .map(|values| {
                     values
@@ -186,10 +192,17 @@ pub fn make_pages<'a, 'b>(
                                 .unwrap_or_else(Vec::new),
                             _ => Vec::new(),
                         })
-                        .collect::<Vec<_>>()
+                        .collect::<FxHashSet<_>>()
                 })
-                .unwrap_or_else(Vec::new);
-            println!("{:?} {:?}", tags, block.referenced_attrs);
+                .unwrap_or_else(FxHashSet::default);
+
+            let tags = tags_set
+                .union(&hashtags)
+                .map(|&s| s)
+                .filter(|&s| s != config.include && exclude_tag_names.get(s).is_none())
+                .collect::<Vec<_>>();
+
+            println!("{:?} {:?}", title, tags);
 
             let template_data = TemplateArgs {
                 title,

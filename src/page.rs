@@ -4,7 +4,7 @@ use crate::roam_edn::*;
 use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 
 pub struct TitleSlugUid {
@@ -65,34 +65,38 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         containing_block: &'a Block,
         s: &'a str,
+        seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let block = self.graph.block_from_uid(s);
         match block {
-            Some(block) => self.render_line_without_header(block).map(|(result, _)| {
-                match self.included_pages_by_id.get(&block.page) {
-                    Some(page) => {
-                        // When the referenced page is exported, make this a link to the block.
-                        let linked = StringBuilder::Vec(vec![
-                            StringBuilder::from(format!(
-                                r##"<a class="block-ref" href="{page}#{block}">"##,
-                                page = page.slug,
-                                block = block.uid
-                            )),
-                            result,
-                            StringBuilder::from("</a>"),
-                        ]);
+            Some(block) => {
+                self.render_line_without_header(block, seen_hashtags)
+                    .map(|(result, _)| {
+                        match self.included_pages_by_id.get(&block.page) {
+                            Some(page) => {
+                                // When the referenced page is exported, make this a link to the block.
+                                let linked = StringBuilder::Vec(vec![
+                                    StringBuilder::from(format!(
+                                        r##"<a class="block-ref" href="{page}#{block}">"##,
+                                        page = page.slug,
+                                        block = block.uid
+                                    )),
+                                    result,
+                                    StringBuilder::from("</a>"),
+                                ]);
 
-                        (linked, true)
-                    }
-                    None => (result, true),
-                }
-            }),
+                                (linked, true)
+                            }
+                            None => (result, true),
+                        }
+                    })
+            }
             None => {
                 // Block ref syntax can also be expandable text. So if we don't match on a block then just render it.
                 parse(s)
                     .map_err(|e| anyhow!("Parse Error: {}", e))
                     .and_then(|expressions| {
-                        self.render_expressions(containing_block, expressions, false)
+                        self.render_expressions(containing_block, expressions, seen_hashtags, false)
                     })
             }
         }
@@ -116,11 +120,15 @@ impl<'a, 'b> Page<'a, 'b> {
         }
     }
 
-    fn render_block_embed(&self, s: &str) -> Result<StringBuilder<'a>> {
+    fn render_block_embed(
+        &self,
+        s: &str,
+        seen_hashtags: &mut FxHashSet<&'a str>,
+    ) -> Result<StringBuilder<'a>> {
         self
       .graph
       .block_from_uid(s)
-      .map(|block| self.render_block_and_children(block, 0).map(|rendered| {
+      .map(|block| self.render_block_and_children(block, seen_hashtags, 0).map(|rendered| {
         StringBuilder::from(vec![
           StringBuilder::from("<div class=\"roam-block-container rm-block rm-block--open rm-not-focused block-bullet-view\">"),
           rendered,
@@ -134,12 +142,15 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         row: Vec<StringBuilder<'a>>,
         id: usize,
+        seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Vec<Vec<StringBuilder<'a>>> {
         self.graph
             .blocks
             .get(&id)
             .map(|block| {
-                let rendered = self.render_line_without_header(block).unwrap();
+                let rendered = self
+                    .render_line_without_header(block, seen_hashtags)
+                    .unwrap();
                 let mut row = row.clone();
                 row.push(rendered.0);
 
@@ -149,7 +160,9 @@ impl<'a, 'b> Page<'a, 'b> {
                     block
                         .children
                         .iter()
-                        .flat_map(|&child| self.descend_table_child(row.clone(), child))
+                        .flat_map(|&child| {
+                            self.descend_table_child(row.clone(), child, seen_hashtags)
+                        })
                         .collect::<Vec<_>>()
                 }
             })
@@ -157,11 +170,15 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     /// Given a block containing a table, render that table into markdown format
-    fn render_table(&self, block: &'a Block) -> StringBuilder<'a> {
+    fn render_table(
+        &self,
+        block: &'a Block,
+        seen_hashtags: &mut FxHashSet<&'a str>,
+    ) -> StringBuilder<'a> {
         let rows = block
             .children
             .iter()
-            .flat_map(|id| self.descend_table_child(Vec::new(), *id))
+            .flat_map(|id| self.descend_table_child(Vec::new(), *id, seen_hashtags))
             .map(|row| {
                 let mut output = StringBuilder::with_capacity(row.len() * 3 + 2);
                 output.push("  <tr>\n");
@@ -182,9 +199,14 @@ impl<'a, 'b> Page<'a, 'b> {
         ])
     }
 
-    fn render_brace_directive(&self, block: &'a Block, s: &'a str) -> (StringBuilder<'a>, bool) {
+    fn render_brace_directive(
+        &self,
+        block: &'a Block,
+        s: &'a str,
+        seen_hashtags: &mut FxHashSet<&'a str>,
+    ) -> (StringBuilder<'a>, bool) {
         let (value, render_children) = match s {
-            "table" => (self.render_table(block), false),
+            "table" => (self.render_table(block, seen_hashtags), false),
             _ => (
                 StringBuilder::from(format!("<pre>{}</pre>", html::escape(s))),
                 true,
@@ -200,32 +222,35 @@ impl<'a, 'b> Page<'a, 'b> {
         tag: &'a str,
         class: &'a str,
         e: Vec<Expression<'a>>,
+        seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
-        self.render_expressions(block, e, false).map(|(s, rc)| {
-            (
-                StringBuilder::from(vec![
-                    StringBuilder::from(format!(
-                        r##"<{tag} class="{class}">"##,
-                        tag = tag,
-                        class = class
-                    )),
-                    s,
-                    StringBuilder::from(format!("</{}>", tag)),
-                ]),
-                rc,
-            )
-        })
+        self.render_expressions(block, e, seen_hashtags, false)
+            .map(|(s, rc)| {
+                (
+                    StringBuilder::from(vec![
+                        StringBuilder::from(format!(
+                            r##"<{tag} class="{class}">"##,
+                            tag = tag,
+                            class = class
+                        )),
+                        s,
+                        StringBuilder::from(format!("</{}>", tag)),
+                    ]),
+                    rc,
+                )
+            })
     }
 
     fn render_expressions(
         &self,
         block: &'a Block,
         e: Vec<Expression<'a>>,
+        seen_hashtags: &mut FxHashSet<&'a str>,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let num_exprs = e.len();
         e.into_iter()
-            .map(|e| self.render_expression(block, e, omit_unexported_links))
+            .map(|e| self.render_expression(block, e, seen_hashtags, omit_unexported_links))
             .fold(
                 Ok((StringBuilder::with_capacity(num_exprs), true)),
                 |acc, r| {
@@ -244,12 +269,13 @@ impl<'a, 'b> Page<'a, 'b> {
         block: &'a Block,
         name: &'a str,
         contents: Vec<Expression<'a>>,
+        seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
         if name == self.filter_tag {
             return Ok((StringBuilder::Empty, true));
         }
 
-        self.render_expressions(block, contents, false)
+        self.render_expressions(block, contents, seen_hashtags, false)
             .map(|(s, rc)| {
                 let mut output = StringBuilder::with_capacity(5);
                 output.push(r##"<span><strong class="rm-attr-ref">"##);
@@ -266,10 +292,14 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         e: Expression<'a>,
+        seen_hashtags: &mut FxHashSet<&'a str>,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let (rendered, render_children) = match e {
-            Expression::Hashtag(s, dot) => (self.hashtag(s, dot, omit_unexported_links), true),
+            Expression::Hashtag(s, dot) => {
+                seen_hashtags.insert(s);
+                (self.hashtag(s, dot, omit_unexported_links), true)
+            }
             Expression::Image { alt, url } => (
                 format!(
                     r##"<img title="{alt}" src="{url}" />"##,
@@ -296,23 +326,31 @@ impl<'a, 'b> Page<'a, 'b> {
                 format!("<pre><code>{}</code></pre>", self.highlighter.highlight(s)).into(),
                 true,
             ),
-            Expression::Bold(e) => self.render_style(block, "strong", "rm-bold", e)?,
-            Expression::Italic(e) => self.render_style(block, "em", "rm-italics", e)?,
-            Expression::Strike(e) => self.render_style(block, "del", "rm-strikethrough", e)?,
-            Expression::Highlight(e) => self.render_style(block, "span", "rm-highlight", e)?,
+            Expression::Bold(e) => {
+                self.render_style(block, "strong", "rm-bold", e, seen_hashtags)?
+            }
+            Expression::Italic(e) => {
+                self.render_style(block, "em", "rm-italics", e, seen_hashtags)?
+            }
+            Expression::Strike(e) => {
+                self.render_style(block, "del", "rm-strikethrough", e, seen_hashtags)?
+            }
+            Expression::Highlight(e) => {
+                self.render_style(block, "span", "rm-highlight", e, seen_hashtags)?
+            }
             Expression::Text(s) => (html::escape(s).into(), true),
-            Expression::BlockRef(s) => self.render_block_ref(block, s)?,
-            Expression::BraceDirective(s) => self.render_brace_directive(block, s),
-            Expression::Table => (self.render_table(block), false),
+            Expression::BlockRef(s) => self.render_block_ref(block, s, seen_hashtags)?,
+            Expression::BraceDirective(s) => self.render_brace_directive(block, s, seen_hashtags),
+            Expression::Table => (self.render_table(block, seen_hashtags), false),
             Expression::HRule => (r##"<hr class="rm-hr" />"##.into(), true),
-            Expression::BlockEmbed(s) => (self.render_block_embed(s)?, true),
+            Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true),
             Expression::PageEmbed(s) => (
                 self.included_pages_by_title
                     .get(s)
                     .map(|IdSlugUid { id: block_id, .. }| {
                         let block = self.graph.blocks.get(block_id).unwrap();
-                        self.render_block_and_children(block, 0)
-                            .map(|embedded_page| {
+                        self.render_block_and_children(block, seen_hashtags, 0).map(
+                            |embedded_page| {
                                 StringBuilder::from(vec![
                                     StringBuilder::from(format!(
                                         r##"<div class="rm-embed rm-embed--page rm-embed-container">
@@ -323,18 +361,25 @@ impl<'a, 'b> Page<'a, 'b> {
                                     embedded_page,
                                     StringBuilder::from("</div>\n</div>"),
                                 ])
-                            })
+                            },
+                        )
                     })
                     .unwrap_or(Ok(StringBuilder::Empty))?,
                 true,
             ),
-            Expression::Attribute { name, value } => self.render_attribute(block, name, value)?, // TODO
+            Expression::Attribute { name, value } => {
+                self.render_attribute(block, name, value, seen_hashtags)?
+            }
         };
 
         Ok((rendered, render_children))
     }
 
-    fn render_line_without_header(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
+    fn render_line_without_header(
+        &self,
+        block: &'a Block,
+        seen_hashtags: &mut FxHashSet<&'a str>,
+    ) -> Result<(StringBuilder<'a>, bool)> {
         let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
 
         let filter_links = self.filter_link_only_blocks
@@ -345,36 +390,42 @@ impl<'a, 'b> Page<'a, 'b> {
                 _ => false,
             });
 
-        self.render_expressions(block, parsed, filter_links)
+        self.render_expressions(block, parsed, seen_hashtags, filter_links)
             .map(|(strings, render_children)| (strings, render_children))
     }
 
-    fn render_line(&self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
-        self.render_line_without_header(block).map(|result| {
-            if block.heading > 0 && !result.0.is_blank() {
-                (
-                    StringBuilder::Vec(vec![
-                        StringBuilder::from(format!(
-                            "<div class=\"rm-heading-{}\">",
-                            block.heading
-                        )),
-                        result.0,
-                        StringBuilder::from("</div>"),
-                    ]),
-                    result.1,
-                )
-            } else {
-                result
-            }
-        })
+    fn render_line(
+        &self,
+        block: &'a Block,
+        seen_hashtags: &mut FxHashSet<&'a str>,
+    ) -> Result<(StringBuilder<'a>, bool)> {
+        self.render_line_without_header(block, seen_hashtags)
+            .map(|result| {
+                if block.heading > 0 && !result.0.is_blank() {
+                    (
+                        StringBuilder::Vec(vec![
+                            StringBuilder::from(format!(
+                                "<div class=\"rm-heading-{}\">",
+                                block.heading
+                            )),
+                            result.0,
+                            StringBuilder::from("</div>"),
+                        ]),
+                        result.1,
+                    )
+                } else {
+                    result
+                }
+            })
     }
 
     fn render_block_and_children(
         &self,
         block: &'a Block,
+        seen_hashtags: &mut FxHashSet<&'a str>,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let (rendered, render_children) = self.render_line(block)?;
+        let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
         let render_children = render_children && !block.children.is_empty();
 
         if rendered.is_blank() && !render_children {
@@ -416,7 +467,7 @@ impl<'a, 'b> Page<'a, 'b> {
             children.sort_by_key(|b| b.order);
 
             for child in &children {
-                result.push(self.render_block_and_children(child, depth + 2)?);
+                result.push(self.render_block_and_children(child, seen_hashtags, depth + 2)?);
             }
 
             result.push(write_depth(depth + 1));
@@ -440,10 +491,11 @@ impl<'a, 'b> Page<'a, 'b> {
         Ok(result)
     }
 
-    pub fn render(&self) -> Result<String> {
+    pub fn render(&self) -> Result<(String, FxHashSet<&'a str>)> {
         let block = self.graph.blocks.get(&self.id).unwrap();
-        self.render_block_and_children(block, 0)
-            .map(|results| results.build())
+        let mut seen_hashtags: FxHashSet<&'a str> = FxHashSet::default();
+        self.render_block_and_children(block, &mut seen_hashtags, 0)
+            .map(|results| (results.build(), seen_hashtags))
     }
 }
 
