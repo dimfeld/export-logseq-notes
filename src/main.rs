@@ -18,7 +18,7 @@ use zip::read::ZipArchive;
 use make_pages::make_pages;
 
 fn main() -> Result<()> {
-    let config = Config::load();
+    let config = Config::load()?;
 
     let mut f =
         File::open(&config.file).with_context(|| format!("Opening {}", config.file.display()))?;

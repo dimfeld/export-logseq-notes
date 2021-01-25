@@ -15,15 +15,11 @@ This is a program to take a Roam Research EDN export and convert it into web pag
 
 ## Configuration
 
-Coming soon!
+Primary configuration is through a TOML file. You can find an [annotated config file here](https://github.com/dimfeld/export-roam-notes/blob/master/export-roam-notes.toml) and
+modify it for your needs.
 
-
-## Remaining work to be usable
-
-- [ ] Real config file format (TOML?)
-
-Once all these are done, I'll upload a batch of notes to [my website](https://imfeld.dev/notes).
-
+The program also supports command line arguments to override settings in the config file. `export-roam-notes --help` will show
+the arguments available.
 
 ## Notable features planned
 
