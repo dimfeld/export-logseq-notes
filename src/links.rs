@@ -10,29 +10,24 @@ pub fn link_path<'a>(src: &str, dest: &'a str, base: Option<&str>) -> Cow<'a, st
         return Cow::from(format!("{}{}", b, dest));
     }
 
-    let components = src.split('/').zip(dest.split('/'));
-
-    let mut common = 0;
-    for (s, d) in components {
-        if s == d {
-            common += 1;
-        } else {
-            break;
-        }
-    }
+    let common = src
+        .split('/')
+        .zip(dest.split('/'))
+        .take_while(|(s, d)| s == d)
+        .count();
 
     let src_dir_size = src.split('/').count() - 1;
     let dest_dir_size = dest.split('/').count() - 1;
-    if src_dir_size == dest_dir_size && dest_dir_size == common {
-        // They're in the same directory
+    if (src_dir_size == dest_dir_size && dest_dir_size == common) || common == dest_dir_size + 1 {
+        // They're in the same directory, or the same file
         return Cow::from(dest.split('/').last().unwrap_or_default());
     }
 
     let step_up = src_dir_size - common;
     let dots = std::iter::repeat("..").take(step_up);
-    let step_in_dirs = dest.split('/').skip(common);
+    let step_in = dest.split('/').skip(common);
 
-    let result = dots.chain(step_in_dirs).join("/");
+    let result = dots.chain(step_in).join("/");
     Cow::from(result)
 }
 
@@ -43,6 +38,11 @@ mod tests {
     #[test]
     fn no_dir() {
         assert_eq!(link_path("a", "b", None), Cow::Borrowed("b"));
+    }
+
+    #[test]
+    fn same_file() {
+        assert_eq!(link_path("d/a", "d/a", None), Cow::Borrowed("a"));
     }
 
     #[test]
