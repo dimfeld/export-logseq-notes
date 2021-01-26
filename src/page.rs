@@ -346,6 +346,9 @@ impl<'a, 'b> Page<'a, 'b> {
             Expression::Highlight(e) => {
                 self.render_style(block, "span", "rm-highlight", e, seen_hashtags)?
             }
+            Expression::BlockQuote(e) => {
+                self.render_style(block, "blockquote", "rm-bq", e, seen_hashtags)?
+            }
             Expression::Text(s) => (html::escape(s).into(), true),
             Expression::BlockRef(s) => self.render_block_ref(block, s, seen_hashtags)?,
             Expression::BraceDirective(s) => self.render_brace_directive(block, s, seen_hashtags),
@@ -413,11 +416,11 @@ impl<'a, 'b> Page<'a, 'b> {
                     (
                         StringBuilder::Vec(vec![
                             StringBuilder::from(format!(
-                                "<div class=\"rm-heading-{}\">",
+                                "<span class=\"rm-heading-{}\">",
                                 block.heading
                             )),
                             result.0,
-                            StringBuilder::from("</div>"),
+                            StringBuilder::from("</span>"),
                         ]),
                         result.1,
                     )

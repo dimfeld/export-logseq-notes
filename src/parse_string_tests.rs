@@ -117,9 +117,6 @@ fn multiword_with_links() {
     )
 }
 
-// Test[[link]]in a word
-// Test#hashtag in a word
-
 #[test]
 fn single_brace() {
     let input = "this is not [a brace ] but [[this is]]";
@@ -471,4 +468,45 @@ fn unicode() {
         parse(input).unwrap(),
         vec![Expression::Text("client’s merkle tree")]
     )
+}
+
+#[test]
+fn blockquote_simple() {
+    let input = r##"> Some text"##;
+    assert_eq!(
+        parse(input).unwrap(),
+        vec![Expression::BlockQuote(vec![Expression::Text("Some text")])]
+    );
+}
+
+#[test]
+fn blockquote_with_nested_styles() {
+    let input = r##"> [[Some]] **text**"##;
+    assert_eq!(
+        parse(input).unwrap(),
+        vec![Expression::BlockQuote(vec![
+            Expression::Link("Some"),
+            Expression::Text(" "),
+            Expression::Bold(vec![Expression::Text("text")])
+        ])]
+    );
+}
+
+#[test]
+fn blockquote_fake_1() {
+    let input = r##" > Some text"##;
+    assert_eq!(
+        parse(input).unwrap(),
+        vec![Expression::Text(" > Some text")]
+    );
+}
+
+#[test]
+fn blockquote_fake_2() {
+    let input = r##"Some text
+> and another"##;
+    assert_eq!(
+        parse(input).unwrap(),
+        vec![Expression::Text("Some text\n> and another")]
+    );
 }

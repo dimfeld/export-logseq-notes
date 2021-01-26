@@ -30,7 +30,8 @@ allow_daily_notes = false
 # from the rendered output.
 also = [
   "UI",
-  "Sermons"
+  "Sermons",
+  "syntax-test"
 ]
 
 # Pages that reference any of these pages will be excluded

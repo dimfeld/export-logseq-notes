@@ -39,27 +39,9 @@ pub enum Expression<'a> {
     Italic(Vec<Expression<'a>>),
     Strike(Vec<Expression<'a>>),
     Highlight(Vec<Expression<'a>>),
+    BlockQuote(Vec<Expression<'a>>),
     HRule,
 }
-
-impl<'a> Expression<'a> {
-    pub fn plaintext(&self) -> &'a str {
-        match self {
-            Expression::Text(s) => s,
-            Expression::SingleBacktick(s) => s,
-            Expression::Hashtag(s, _) => s,
-            Expression::Link(s) => s,
-            Expression::MarkdownLink { title, .. } => title,
-            Expression::RawHyperlink(s) => s,
-            Expression::BlockRef(s) => s,
-            _ => "",
-        }
-    }
-}
-
-// fn ws(s: &str) -> IResult<&str, &str> {
-//   alt((one_of(" \t\r\n"), eof))(s)
-// }
 
 fn nonws_char(c: char) -> bool {
     !is_space(c as u8) && !is_newline(c as u8)
@@ -270,6 +252,9 @@ fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
 pub fn parse(input: &str) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
     alt((
         map(all_consuming(tag("---")), |_| vec![Expression::HRule]),
+        map(all_consuming(preceded(tag("> "), parse_inline)), |values| {
+            vec![Expression::BlockQuote(values)]
+        }),
         map(all_consuming(attribute), |(name, value)| {
             vec![Expression::Attribute { name, value }]
         }),
