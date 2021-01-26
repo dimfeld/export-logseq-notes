@@ -79,6 +79,9 @@ struct InputConfig {
     )]
     pub exclude_tags: Option<Vec<String>>,
 
+    #[structopt(long, env, help = "Skip rendering blocks with thse attributes")]
+    pub omit_attributes: Option<Vec<String>>,
+
     #[structopt(
         long,
         env,
@@ -120,6 +123,7 @@ pub struct Config {
     pub allow_daily_notes: bool,
     pub exclude: Vec<String>,
     pub exclude_tags: Vec<String>,
+    pub omit_attributes: Vec<String>,
     pub highlight_class_prefix: Option<String>,
     pub template: PathBuf,
     pub extension: String,
@@ -162,7 +166,7 @@ impl Config {
                 // A config was explicitly specified, so it's an error to not find it.
                 return Err(e).context("Failed to open config file");
             }
-            (Err(e), None) => {
+            (Err(_), None) => {
                 // The user didn't spcify a config filename, so it's ok if the file doesn't
                 // exist.
                 InputConfig::default()
@@ -183,6 +187,7 @@ impl Config {
             ),
             exclude: merge_default(cmdline_cfg.exclude, file_cfg.exclude),
             exclude_tags: merge_default(cmdline_cfg.exclude_tags, file_cfg.exclude_tags),
+            omit_attributes: merge_default(cmdline_cfg.omit_attributes, file_cfg.omit_attributes),
             highlight_class_prefix: cmdline_cfg
                 .highlight_class_prefix
                 .or(file_cfg.highlight_class_prefix),

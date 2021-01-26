@@ -61,6 +61,11 @@ exclude_tags = [
   "Done"
 ]
 
+# Skip rendering blocks with these attributes. Their children, if any, will still render.
+omit_attributes = [
+  "Progress",
+  "Tags"
+]
 
 ##### Link Handling #####
 

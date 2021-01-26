@@ -94,6 +94,12 @@ pub fn make_pages<'a, 'b>(
         })
         .transpose()?;
 
+    let omitted_attributes = config
+        .omit_attributes
+        .iter()
+        .map(|x| x.as_str())
+        .collect::<FxHashSet<_>>();
+
     let included_pages_by_title = graph
         .blocks
         .iter()
@@ -165,6 +171,7 @@ pub fn make_pages<'a, 'b>(
                 filter_tag: &config.include,
                 included_pages_by_title: &included_pages_by_title,
                 included_pages_by_id: &included_pages_by_id,
+                omitted_attributes: &omitted_attributes,
                 highlighter,
             };
 

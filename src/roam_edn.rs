@@ -196,17 +196,44 @@ impl Graph {
         }
     }
 
-    fn add_block(&mut self, mut block: Block) {
+    fn add_block(&mut self, block: Block) {
         if let Some(title) = &block.title {
             self.titles.insert(title.clone(), block.id);
         }
 
-        if block.create_time == 0 {
-            block.create_time = block.edit_time;
-        }
-
         self.blocks_by_uid.insert(block.uid.clone(), block.id);
         self.blocks.insert(block.id, block);
+    }
+
+    fn fix_and_get_block_create_time(&mut self, block_id: usize) -> usize {
+        let block = self.blocks.get(&block_id).unwrap();
+        if block.create_time > 0 {
+            return block.create_time;
+        }
+
+        let mut min_create_time = usize::max_value();
+        let children = block.children.clone();
+        for block_id in children {
+            let child_create_time = self.fix_and_get_block_create_time(block_id);
+            min_create_time = min_create_time.min(child_create_time);
+        }
+
+        let block = self.blocks.get_mut(&block_id).unwrap();
+        block.create_time = min_create_time;
+
+        block.create_time
+    }
+
+    fn fix_create_times(&mut self) {
+        let blocks_without_create_time = self
+            .blocks
+            .iter()
+            .filter(|(_, b)| b.create_time == 0)
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        for id in blocks_without_create_time {
+            self.fix_and_get_block_create_time(id);
+        }
     }
 
     pub fn from_edn(mut s: &str) -> Result<Graph, EdnError> {
@@ -336,6 +363,8 @@ impl Graph {
             current_block.page = current_block.id;
         }
         graph.add_block(current_block);
+
+        graph.fix_create_times();
 
         Ok(graph)
     }

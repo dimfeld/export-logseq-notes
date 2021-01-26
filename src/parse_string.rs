@@ -1,9 +1,9 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, tag_no_case, take_until, take_while1},
-    character::complete::{char, multispace0, multispace1, one_of},
+    bytes::complete::{is_not, tag, take_until, take_while1},
+    character::complete::{char, multispace0},
     character::{is_newline, is_space},
-    combinator::{all_consuming, eof, map, map_parser, opt, recognize},
+    combinator::{all_consuming, map, map_parser, opt, recognize},
     error::context,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
     IResult,
@@ -161,7 +161,7 @@ fn raw_url(input: &str) -> IResult<&str, &str> {
     let mut end = 0;
     for c in input.chars() {
         match locator.advance(c) {
-            UrlLocation::Url(s, e) => {
+            UrlLocation::Url(s, _e) => {
                 end = s as usize;
             }
             UrlLocation::Reset => break,

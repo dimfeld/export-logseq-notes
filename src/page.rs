@@ -37,6 +37,7 @@ pub struct Page<'a, 'b> {
     pub filter_link_only_blocks: bool,
     pub included_pages_by_title: &'a FxHashMap<String, IdSlugUid>,
     pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
+    pub omitted_attributes: &'a FxHashSet<&'a str>,
     pub highlighter: &'b syntax_highlight::Highlighter,
 }
 
@@ -275,7 +276,7 @@ impl<'a, 'b> Page<'a, 'b> {
         contents: Vec<Expression<'a>>,
         seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
-        if name == self.filter_tag {
+        if name == self.filter_tag || self.omitted_attributes.get(name).is_some() {
             return Ok((StringBuilder::Empty, true));
         }
 

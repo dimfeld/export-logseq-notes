@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use std::borrow::Cow;
-use std::path::Path;
 
 /// Given two paths and an optional base directory, calculate the appropriate link.
 /// If `base` is supplied, the generated URL will always be an absolute URL
