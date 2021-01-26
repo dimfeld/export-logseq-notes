@@ -1,6 +1,7 @@
 # Roam Note Exporter
 
-This is a program to take a Roam Research EDN export and convert it into web pages.
+This is a program to take a Roam Research EDN export and convert it into web pages. I'm currently using this to
+populate the [notes section of my website](https://imfeld.dev/notes).
 
 ## Features
 
