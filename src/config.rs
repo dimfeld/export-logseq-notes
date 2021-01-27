@@ -109,7 +109,7 @@ struct InputConfig {
     pub filter_link_only_blocks: Option<bool>,
 
     #[structopt(long, env, help = "Include page embeds of non-exported pages")]
-    pub include_all_page_embeds: Option<bool>, // TODO
+    pub include_all_page_embeds: Option<bool>,
 }
 
 pub struct Config {

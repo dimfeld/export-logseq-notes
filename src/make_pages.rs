@@ -100,6 +100,27 @@ pub fn make_pages<'a, 'b>(
         .map(|x| x.as_str())
         .collect::<FxHashSet<_>>();
 
+    let pages_by_title = graph
+        .pages()
+        .map(|page| {
+            let slug = match page.referenced_attrs.get(main_tag_uid).map(|v| &v[0]) {
+                // The page sets the filename manually.
+                Some(AttrValue::Str(s)) => s.clone(),
+                // Otherwise generate it from the title.
+                _ => title_to_slug(page.title.as_ref().unwrap()),
+            };
+
+            (
+                page.title.clone().unwrap(),
+                IdSlugUid {
+                    id: page.id,
+                    slug,
+                    uid: page.uid.clone(),
+                },
+            )
+        })
+        .collect::<FxHashMap<_, _>>();
+
     let included_pages_by_title = graph
         .blocks
         .iter()
@@ -123,21 +144,8 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            let slug = match page.referenced_attrs.get(main_tag_uid).map(|v| &v[0]) {
-                // The page sets the filename manually.
-                Some(AttrValue::Str(s)) => s.clone(),
-                // Otherwise generate it from the title.
-                _ => title_to_slug(page.title.as_ref().unwrap()),
-            };
-
-            Some((
-                title.clone(),
-                IdSlugUid {
-                    id: page.id,
-                    slug,
-                    uid: block.uid.clone(),
-                },
-            ))
+            let slug = pages_by_title.get(title).clone().unwrap();
+            Some((title.clone(), slug))
         })
         .collect::<FxHashMap<_, _>>();
 
@@ -169,9 +177,11 @@ pub fn make_pages<'a, 'b>(
                 base_url: &config.base_url,
                 filter_link_only_blocks: config.filter_link_only_blocks,
                 filter_tag: &config.include,
+                pages_by_title: &pages_by_title,
                 included_pages_by_title: &included_pages_by_title,
                 included_pages_by_id: &included_pages_by_id,
                 omitted_attributes: &omitted_attributes,
+                embed_unincluded_pages: config.include_all_page_embeds,
                 highlighter,
             };
 

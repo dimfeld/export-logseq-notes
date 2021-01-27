@@ -35,9 +35,11 @@ pub struct Page<'a, 'b> {
     pub graph: &'a Graph,
     pub base_url: &'a Option<String>,
     pub filter_link_only_blocks: bool,
-    pub included_pages_by_title: &'a FxHashMap<String, IdSlugUid>,
+    pub pages_by_title: &'a FxHashMap<String, IdSlugUid>,
+    pub included_pages_by_title: &'a FxHashMap<String, &'a IdSlugUid>,
     pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
     pub omitted_attributes: &'a FxHashSet<&'a str>,
+    pub embed_unincluded_pages: bool,
     pub highlighter: &'b syntax_highlight::Highlighter,
 }
 
@@ -356,9 +358,14 @@ impl<'a, 'b> Page<'a, 'b> {
             Expression::Table => (self.render_table(block, seen_hashtags), false),
             Expression::HRule => (r##"<hr class="rm-hr" />"##.into(), true),
             Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true),
-            Expression::PageEmbed(s) => (
-                self.included_pages_by_title
-                    .get(s)
+            Expression::PageEmbed(s) => {
+                let page = if self.embed_unincluded_pages {
+                    self.pages_by_title.get(s)
+                } else {
+                    self.included_pages_by_title.get(s).map(|p| *p)
+                };
+
+                let result = page
                     .map(|IdSlugUid { id: block_id, .. }| {
                         let block = self.graph.blocks.get(block_id).unwrap();
                         self.render_block_and_children(block, seen_hashtags, 0).map(
@@ -376,9 +383,9 @@ impl<'a, 'b> Page<'a, 'b> {
                             },
                         )
                     })
-                    .unwrap_or(Ok(StringBuilder::Empty))?,
-                true,
-            ),
+                    .unwrap_or(Ok(StringBuilder::Empty))?;
+                (result, true)
+            }
             Expression::Attribute { name, value } => {
                 self.render_attribute(block, name, value, seen_hashtags)?
             }
