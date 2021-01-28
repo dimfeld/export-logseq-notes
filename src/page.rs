@@ -214,10 +214,16 @@ impl<'a, 'b> Page<'a, 'b> {
     ) -> (StringBuilder<'a>, bool) {
         let (value, render_children) = match s {
             "table" => (self.render_table(block, seen_hashtags), false),
-            _ => (
-                StringBuilder::from(format!("<pre>{}</pre>", html::escape(s))),
-                true,
-            ),
+            _ => {
+                if s.starts_with("query:") {
+                    (StringBuilder::Empty, true)
+                } else {
+                    (
+                        StringBuilder::from(format!("<pre>{}</pre>", html::escape(s))),
+                        true,
+                    )
+                }
+            }
         };
 
         (value, render_children)
