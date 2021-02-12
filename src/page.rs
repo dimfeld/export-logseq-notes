@@ -83,10 +83,15 @@ impl<'a, 'b> Page<'a, 'b> {
                         match self.included_pages_by_id.get(&block.page) {
                             Some(page) => {
                                 // When the referenced page is exported, make this a link to the block.
+                                let url = links::link_path(
+                                    self.slug,
+                                    &page.slug,
+                                    self.base_url.as_deref(),
+                                );
                                 let linked = StringBuilder::Vec(vec![
                                     StringBuilder::from(format!(
                                         r##"<a class="block-ref" href="{page}#{block}">"##,
-                                        page = page.slug,
+                                        page = url,
                                         block = block.uid
                                     )),
                                     result,
