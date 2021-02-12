@@ -14,6 +14,7 @@ edn-rs = "0.16.12"
 fxhash = "0.2.1"
 handlebars = "3.5.2"
 itertools = "0.10.0"
+katex = "0.3.2"
 nom = "6.0.1"
 rayon = "1.5.0"
 serde = { version = "1.0.119", features = ["derive"] }

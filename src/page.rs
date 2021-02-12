@@ -6,6 +6,7 @@ use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
 use fxhash::{FxHashMap, FxHashSet};
+use katex;
 use serde::Serialize;
 
 pub struct TitleSlugUid {
@@ -354,6 +355,13 @@ impl<'a, 'b> Page<'a, 'b> {
             }
             Expression::Highlight(e) => {
                 self.render_style(block, "span", "rm-highlight", e, seen_hashtags)?
+            }
+            Expression::Latex(e) => {
+                let opts = katex::Opts::builder()
+                    .output_type(katex::OutputType::HtmlAndMathml)
+                    .build()
+                    .unwrap();
+                (katex::render_with_opts(e, &opts)?.into(), true)
             }
             Expression::BlockQuote(e) => {
                 self.render_style(block, "blockquote", "rm-bq", e, seen_hashtags)?

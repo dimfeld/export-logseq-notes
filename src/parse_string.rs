@@ -39,6 +39,7 @@ pub enum Expression<'a> {
     Italic(Vec<Expression<'a>>),
     Strike(Vec<Expression<'a>>),
     Highlight(Vec<Expression<'a>>),
+    Latex(&'a str),
     BlockQuote(Vec<Expression<'a>>),
     HRule,
 }
@@ -48,7 +49,7 @@ fn nonws_char(c: char) -> bool {
 }
 
 fn word(input: &str) -> IResult<&str, &str> {
-    recognize(take_while1(nonws_char))(input)
+    take_while1(nonws_char)(input)
 }
 
 fn fenced<'a>(start: &'a str, end: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
@@ -112,6 +113,10 @@ fn strike(input: &str) -> IResult<&str, Vec<Expression>> {
 
 fn highlight(input: &str) -> IResult<&str, Vec<Expression>> {
     style("^^")(input)
+}
+
+fn latex(input: &str) -> IResult<&str, &str> {
+    fenced("$$", "$$")(input)
 }
 
 fn brace_directive_contents(input: &str) -> IResult<&str, Expression> {
@@ -196,6 +201,7 @@ fn directive(input: &str) -> IResult<&str, Expression> {
         map(italic, Expression::Italic),
         map(strike, Expression::Strike),
         map(highlight, Expression::Highlight),
+        map(latex, Expression::Latex),
         map(raw_url, Expression::RawHyperlink),
     ))(input)
 }
