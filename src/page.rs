@@ -74,7 +74,7 @@ impl<'a, 'b> Page<'a, 'b> {
         containing_block: &'a Block,
         s: &'a str,
         seen_hashtags: &mut FxHashSet<&'a str>,
-    ) -> Result<(StringBuilder<'a>, bool)> {
+    ) -> Result<(StringBuilder<'a>, bool, bool)> {
         let block = self.graph.block_from_uid(s);
         match block {
             Some(block) => {
@@ -98,9 +98,9 @@ impl<'a, 'b> Page<'a, 'b> {
                                     StringBuilder::from("</a>"),
                                 ]);
 
-                                (linked, true)
+                                (linked, true, true)
                             }
-                            None => (result, true),
+                            None => (result, true, true),
                         }
                     })
             }
@@ -111,6 +111,7 @@ impl<'a, 'b> Page<'a, 'b> {
                     .and_then(|expressions| {
                         self.render_expressions(containing_block, expressions, seen_hashtags, false)
                     })
+                    .map(|(sb, render_children)| (sb, true, render_children))
             }
         }
     }
@@ -217,7 +218,7 @@ impl<'a, 'b> Page<'a, 'b> {
         block: &'a Block,
         s: &'a str,
         seen_hashtags: &mut FxHashSet<&'a str>,
-    ) -> (StringBuilder<'a>, bool) {
+    ) -> (StringBuilder<'a>, bool, bool) {
         let (value, render_children) = match s {
             "table" => (self.render_table(block, seen_hashtags), false),
             _ => {
@@ -232,7 +233,7 @@ impl<'a, 'b> Page<'a, 'b> {
             }
         };
 
-        (value, render_children)
+        (value, true, render_children)
     }
 
     fn render_style(
@@ -242,7 +243,7 @@ impl<'a, 'b> Page<'a, 'b> {
         class: &'a str,
         e: Vec<Expression<'a>>,
         seen_hashtags: &mut FxHashSet<&'a str>,
-    ) -> Result<(StringBuilder<'a>, bool)> {
+    ) -> Result<(StringBuilder<'a>, bool, bool)> {
         self.render_expressions(block, e, seen_hashtags, false)
             .map(|(s, rc)| {
                 (
@@ -255,6 +256,7 @@ impl<'a, 'b> Page<'a, 'b> {
                         s,
                         StringBuilder::from(format!("</{}>", tag)),
                     ]),
+                    true,
                     rc,
                 )
             })
@@ -271,16 +273,25 @@ impl<'a, 'b> Page<'a, 'b> {
         e.into_iter()
             .map(|e| self.render_expression(block, e, seen_hashtags, omit_unexported_links))
             .fold(
-                Ok((StringBuilder::with_capacity(num_exprs), true)),
+                Ok((StringBuilder::with_capacity(num_exprs), false, true)),
                 |acc, r| {
-                    acc.and_then(|(mut line, render_children)| {
-                        r.map(|r| {
-                            line.push(r.0);
-                            (line, render_children && r.1)
+                    acc.and_then(|(mut line, should_render, render_children)| {
+                        r.map(|(sb, must_render, this_render_children)| {
+                            let should_render = should_render || (!sb.is_blank() && must_render);
+                            line.push(sb);
+
+                            (line, should_render, render_children && this_render_children)
                         })
                     })
                 },
             )
+            .map(|(line, should_render, render_children)| {
+                if should_render {
+                    (line, render_children)
+                } else {
+                    (StringBuilder::Empty, render_children)
+                }
+            })
     }
 
     fn render_attribute(
@@ -289,9 +300,9 @@ impl<'a, 'b> Page<'a, 'b> {
         name: &'a str,
         contents: Vec<Expression<'a>>,
         seen_hashtags: &mut FxHashSet<&'a str>,
-    ) -> Result<(StringBuilder<'a>, bool)> {
+    ) -> Result<(StringBuilder<'a>, bool, bool)> {
         if name == self.filter_tag || self.omitted_attributes.get(name).is_some() {
-            return Ok((StringBuilder::Empty, true));
+            return Ok((StringBuilder::Empty, false, true));
         }
 
         self.render_expressions(block, contents, seen_hashtags, false)
@@ -303,7 +314,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 output.push(s);
                 output.push("</span>");
 
-                (output, rc)
+                (output, true, rc)
             })
     }
 
@@ -313,11 +324,11 @@ impl<'a, 'b> Page<'a, 'b> {
         e: Expression<'a>,
         seen_hashtags: &mut FxHashSet<&'a str>,
         omit_unexported_links: bool,
-    ) -> Result<(StringBuilder<'a>, bool)> {
-        let (rendered, render_children) = match e {
+    ) -> Result<(StringBuilder<'a>, bool, bool)> {
+        let rendered = match e {
             Expression::Hashtag(s, dot) => {
                 seen_hashtags.insert(s);
-                (self.hashtag(s, dot, omit_unexported_links), true)
+                (self.hashtag(s, dot, omit_unexported_links), true, true)
             }
             Expression::Image { alt, url } => (
                 format!(
@@ -327,8 +338,18 @@ impl<'a, 'b> Page<'a, 'b> {
                 )
                 .into(),
                 true,
+                true,
             ),
-            Expression::Link(s) => (self.link_if_allowed(s, omit_unexported_links), true),
+            Expression::Todo { done } => (
+                format!(
+                    r##"<input type="checkbox" readonly="true" checked="{}" />"##,
+                    done
+                )
+                .into(),
+                false,
+                true,
+            ),
+            Expression::Link(s) => (self.link_if_allowed(s, omit_unexported_links), true, true),
             Expression::MarkdownLink { title, url } => (
                 format!(
                     r##"<a href="{url}">{title}</a>"##,
@@ -337,16 +358,21 @@ impl<'a, 'b> Page<'a, 'b> {
                 )
                 .into(),
                 true,
+                true,
             ),
             Expression::RawHyperlink(h) => (
                 format!(r##"<a href="{url}">{url}</a>"##, url = html::escape(h),).into(),
                 true,
+                true,
             ),
-            Expression::SingleBacktick(s) => {
-                (format!("<code>{}</code>", html::escape(s)).into(), true)
-            }
+            Expression::SingleBacktick(s) => (
+                format!("<code>{}</code>", html::escape(s)).into(),
+                true,
+                true,
+            ),
             Expression::TripleBacktick(s) => (
                 format!("<pre><code>{}</code></pre>", self.highlighter.highlight(s)).into(),
+                true,
                 true,
             ),
             Expression::Bold(e) => {
@@ -366,17 +392,17 @@ impl<'a, 'b> Page<'a, 'b> {
                     .output_type(katex::OutputType::HtmlAndMathml)
                     .build()
                     .unwrap();
-                (katex::render_with_opts(e, &opts)?.into(), true)
+                (katex::render_with_opts(e, &opts)?.into(), true, true)
             }
             Expression::BlockQuote(e) => {
                 self.render_style(block, "blockquote", "rm-bq", e, seen_hashtags)?
             }
-            Expression::Text(s) => (html::escape(s).into(), true),
+            Expression::Text(s) => (html::escape(s).into(), true, true),
             Expression::BlockRef(s) => self.render_block_ref(block, s, seen_hashtags)?,
             Expression::BraceDirective(s) => self.render_brace_directive(block, s, seen_hashtags),
-            Expression::Table => (self.render_table(block, seen_hashtags), false),
-            Expression::HRule => (r##"<hr class="rm-hr" />"##.into(), true),
-            Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true),
+            Expression::Table => (self.render_table(block, seen_hashtags), true, false),
+            Expression::HRule => (r##"<hr class="rm-hr" />"##.into(), true, true),
+            Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true, true),
             Expression::PageEmbed(s) => {
                 let page = if self.embed_unincluded_pages {
                     self.pages_by_title.get(s)
@@ -403,14 +429,14 @@ impl<'a, 'b> Page<'a, 'b> {
                         )
                     })
                     .unwrap_or(Ok(StringBuilder::Empty))?;
-                (result, true)
+                (result, true, true)
             }
             Expression::Attribute { name, value } => {
                 self.render_attribute(block, name, value, seen_hashtags)?
             }
         };
 
-        Ok((rendered, render_children))
+        Ok(rendered)
     }
 
     fn render_line_without_header(
@@ -424,6 +450,7 @@ impl<'a, 'b> Page<'a, 'b> {
             && parsed.iter().all(|e| match e {
                 Expression::Link(_) => true,
                 Expression::Hashtag(_, _) => true,
+                Expression::Todo { .. } => true,
                 Expression::Text(t) => t.trim().is_empty(),
                 _ => false,
             });

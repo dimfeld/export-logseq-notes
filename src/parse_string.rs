@@ -20,6 +20,9 @@ pub enum Expression<'a> {
     },
     BraceDirective(&'a str),
     Table,
+    Todo {
+        done: bool,
+    },
     PageEmbed(&'a str),
     BlockEmbed(&'a str),
     TripleBacktick(&'a str),
@@ -122,6 +125,12 @@ fn latex(input: &str) -> IResult<&str, &str> {
 fn brace_directive_contents(input: &str) -> IResult<&str, Expression> {
     alt((
         map(fixed_link_or_word("table"), |_| Expression::Table),
+        map(fixed_link_or_word("TODO"), |_| Expression::Todo {
+            done: false,
+        }),
+        map(fixed_link_or_word("DONE"), |_| Expression::Todo {
+            done: true,
+        }),
         map(
             separated_pair(
                 fixed_link_or_word("embed"),
