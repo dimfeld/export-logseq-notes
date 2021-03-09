@@ -79,7 +79,7 @@ struct InputConfig {
     )]
     pub exclude_tags: Option<Vec<String>>,
 
-    #[structopt(long, env, help = "Skip rendering blocks with thse attributes")]
+    #[structopt(long, env, help = "Skip rendering blocks with these attributes")]
     pub omit_attributes: Option<Vec<String>>,
 
     #[structopt(
