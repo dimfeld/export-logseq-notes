@@ -1,6 +1,6 @@
 [package]
 name = "export-roam-notes"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Daniel Imfeld <daniel@imfeld.dev>"]
 edition = "2018"
 
