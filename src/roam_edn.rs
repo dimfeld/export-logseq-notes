@@ -177,14 +177,14 @@ impl TryFrom<Edn> for EntityAttr {
     }
 }
 
-pub struct Graph {
+pub struct RoamGraph {
     pub blocks: BTreeMap<usize, Block>,
     pub titles: FxHashMap<String, usize>,
     pub blocks_by_uid: FxHashMap<String, usize>,
     pub emails: Vec<String>,
 }
 
-impl Graph {
+impl RoamGraph {
     fn get_email_index(&mut self, email: String) -> usize {
         let index = self.emails.iter().position(|s| s == &email);
         match index {
@@ -236,8 +236,8 @@ impl Graph {
         }
     }
 
-    pub fn from_edn(mut s: &str) -> Result<Graph, EdnError> {
-        let mut graph = Graph {
+    pub fn from_edn(mut s: &str) -> Result<RoamGraph, EdnError> {
+        let mut graph = RoamGraph {
             blocks: BTreeMap::new(),
             titles: FxHashMap::default(),
             blocks_by_uid: FxHashMap::default(),
@@ -367,29 +367,5 @@ impl Graph {
         graph.fix_create_times();
 
         Ok(graph)
-    }
-
-    fn block_iter<F: FnMut(&(&usize, &Block)) -> bool>(
-        &self,
-        filter: F,
-    ) -> impl Iterator<Item = &Block> {
-        self.blocks.iter().filter(filter).map(|(_, n)| n)
-    }
-
-    pub fn pages(&self) -> impl Iterator<Item = &Block> {
-        self.block_iter(|(_, n)| n.title.is_some())
-    }
-
-    pub fn blocks_with_references<'a>(
-        &'a self,
-        references: &'a [usize],
-    ) -> impl Iterator<Item = &'a Block> {
-        self.block_iter(move |(_, n)| n.refs.iter().any(move |r| references.contains(r)))
-    }
-
-    pub fn block_from_uid(&self, uid: &str) -> Option<&Block> {
-        self.blocks_by_uid
-            .get(uid)
-            .and_then(|id| self.blocks.get(id))
     }
 }

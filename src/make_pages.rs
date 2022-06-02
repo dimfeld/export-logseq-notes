@@ -194,7 +194,6 @@ pub fn make_pages<'a, 'b>(
                 .map(|values| {
                     values
                         .iter()
-                        .filter(|attr| matches!(attr, AttrValue::Uid(_) | AttrValue::Str(_)))
                         .flat_map(|attr| match attr {
                             AttrValue::Str(s) => s.split(',').map(|s| s.trim()).collect::<Vec<_>>(),
                             AttrValue::Uid(u) => graph

@@ -1,4 +1,5 @@
 mod config;
+mod graph;
 mod html;
 mod links;
 mod logseq_json;

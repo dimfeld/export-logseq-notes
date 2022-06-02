@@ -407,6 +407,7 @@ dependencies = [
  "syntect",
  "toml",
  "urlocator",
+ "uuid",
  "zip",
 ]
 
@@ -1190,6 +1191,15 @@ name = "urlocator"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14e39a4f106dafb0a748b951494667a44e62b55fd7942b4fc12706d63cc535a0"
+
+[[package]]
+name = "uuid"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6d5d669b51467dcf7b2f1a796ce0f955f05f01cafda6c19d6e95f730df29238"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "vec_map"

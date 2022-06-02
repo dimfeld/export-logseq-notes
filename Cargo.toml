@@ -24,4 +24,5 @@ structopt = "0.3.21"
 syntect = "5.0.0"
 toml = "0.5.8"
 urlocator = "0.1.4"
+uuid = { version= "1.1.1", features = ["serde"] }
 zip = "0.6.2"
