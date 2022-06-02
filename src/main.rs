@@ -1,6 +1,7 @@
 mod config;
 mod html;
 mod links;
+mod logseq_json;
 mod make_pages;
 mod page;
 mod parse_string;

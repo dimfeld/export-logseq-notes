@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::io::Read;
 use std::path::PathBuf;
+use std::str::FromStr;
 use structopt::StructOpt;
 use toml;
 
@@ -24,6 +25,9 @@ struct InputConfig {
 
     #[structopt(short, long, env, help = "Output directory")]
     pub output: Option<PathBuf>,
+
+    #[structopt(short, long, env, help = "Data format to read")]
+    pub product: Option<PkmProduct>,
 
     #[structopt(long, env, help = "Base URL to apply to relative hyperlinks")]
     pub base_url: Option<String>,
@@ -112,9 +116,35 @@ struct InputConfig {
     pub include_all_page_embeds: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PkmProduct {
+    Roam,
+    Logseq,
+}
+
+impl Default for PkmProduct {
+    fn default() -> Self {
+        Self::Roam
+    }
+}
+
+impl FromStr for PkmProduct {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "roam" => Ok(Self::Roam),
+            "logseq" => Ok(Self::Logseq),
+            _ => Err(anyhow!("Supported products are roam, logseq")),
+        }
+    }
+}
+
 pub struct Config {
     pub file: PathBuf,
     pub output: PathBuf,
+    pub product: PkmProduct,
     pub base_url: Option<String>,
     pub namespace_dirs: bool, // TODO
     pub include: String,
@@ -176,6 +206,7 @@ impl Config {
         let mut cfg = Config {
             file: merge_required("file", cmdline_cfg.file, file_cfg.file)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
+            product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
             namespace_dirs: merge_default(cmdline_cfg.namespace_dirs, file_cfg.namespace_dirs),
             include: merge_required("include", cmdline_cfg.include, file_cfg.include)?,
