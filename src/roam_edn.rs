@@ -369,14 +369,14 @@ impl Graph {
         Ok(graph)
     }
 
-    fn block_iter<'a, F: FnMut(&(&usize, &Block)) -> bool>(
-        &'a self,
+    fn block_iter<F: FnMut(&(&usize, &Block)) -> bool>(
+        &self,
         filter: F,
-    ) -> impl Iterator<Item = &'a Block> {
+    ) -> impl Iterator<Item = &Block> {
         self.blocks.iter().filter(filter).map(|(_, n)| n)
     }
 
-    pub fn pages<'a>(&'a self) -> impl Iterator<Item = &'a Block> {
+    pub fn pages(&self) -> impl Iterator<Item = &Block> {
         self.block_iter(|(_, n)| n.title.is_some())
     }
 

@@ -144,7 +144,7 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            let slug = pages_by_title.get(title).clone().unwrap();
+            let slug = pages_by_title.get(title).unwrap();
             Some((title.clone(), slug))
         })
         .collect::<FxHashMap<_, _>>();
@@ -172,8 +172,8 @@ pub fn make_pages<'a, 'b>(
             let page = Page {
                 id: *id,
                 title: title.clone(),
-                slug: &slug,
-                graph: &graph,
+                slug,
+                graph,
                 base_url: &config.base_url,
                 filter_link_only_blocks: config.filter_link_only_blocks,
                 filter_tag: &config.include,
@@ -194,13 +194,9 @@ pub fn make_pages<'a, 'b>(
                 .map(|values| {
                     values
                         .iter()
-                        .filter(|attr| match attr {
-                            AttrValue::Str(_) => true,
-                            AttrValue::Uid(_) => true,
-                            _ => false,
-                        })
+                        .filter(|attr| matches!(attr, AttrValue::Uid(_) | AttrValue::Str(_)))
                         .flat_map(|attr| match attr {
-                            AttrValue::Str(s) => s.split(",").map(|s| s.trim()).collect::<Vec<_>>(),
+                            AttrValue::Str(s) => s.split(',').map(|s| s.trim()).collect::<Vec<_>>(),
                             AttrValue::Uid(u) => graph
                                 .blocks_by_uid
                                 .get(u)
@@ -223,7 +219,7 @@ pub fn make_pages<'a, 'b>(
 
             let tags = tags_set
                 .union(&hashtags)
-                .map(|&s| s)
+                .copied()
                 .filter(|&s| s != config.include && exclude_tag_names.get(s).is_none())
                 .collect::<Vec<_>>();
 
