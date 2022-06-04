@@ -1,7 +1,7 @@
+use crate::graph::{Block, Graph, ViewType};
 use crate::html;
 use crate::links;
 use crate::parse_string::{parse, Expression};
-use crate::roam_edn::*;
 use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
@@ -80,7 +80,7 @@ impl<'a, 'b> Page<'a, 'b> {
             Some(block) => {
                 self.render_line_without_header(block, seen_hashtags)
                     .map(|(result, _)| {
-                        match self.included_pages_by_id.get(&block.page) {
+                        match self.included_pages_by_id.get(&block.containing_page) {
                             Some(page) => {
                                 // When the referenced page is exported, make this a link to the block.
                                 let url = links::link_path(
@@ -529,7 +529,9 @@ impl<'a, 'b> Page<'a, 'b> {
                 .iter()
                 .filter_map(|id| self.graph.blocks.get(id))
                 .collect::<Vec<_>>();
-            children.sort_by_key(|b| b.order);
+            if self.graph.block_explicit_ordering {
+                children.sort_by_key(|b| b.order);
+            }
 
             for child in &children {
                 result.push(self.render_block_and_children(child, seen_hashtags, depth + 2)?);

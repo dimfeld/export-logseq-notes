@@ -1,6 +1,6 @@
 use crate::config::Config;
+use crate::graph::Graph;
 use crate::page::{IdSlugUid, Page, TitleAndUid, TitleSlugUid};
-use crate::roam_edn::*;
 use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
 use fxhash::{FxHashMap, FxHashSet};
@@ -39,33 +39,21 @@ pub fn make_pages<'a, 'b>(
     let mut all_filter_tags = vec![config.include.to_string()];
     all_filter_tags.extend_from_slice(&config.also);
 
-    let tag_node_ids = all_filter_tags
-        .iter()
-        .map(|tag| {
-            graph
-                .titles
-                .get(tag)
-                .copied()
-                .ok_or_else(|| anyhow!("Could not find page with filter name {}", tag))
-        })
-        .collect::<Result<Vec<usize>>>()?;
-
-    let exclude_page_tag_ids = config
+    let exclude_page_tags = config
         .exclude
         .iter()
-        .map(|tag| {
-            graph
-                .titles
-                .get(tag)
-                .copied()
-                .ok_or_else(|| anyhow!("Could not find page with excluded filter name {}", tag))
-        })
-        .collect::<Result<Vec<usize>>>()?;
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>();
 
-    let excluded_page_ids = graph
-        .blocks_with_references(&exclude_page_tag_ids)
-        .map(|block| block.page)
-        .chain(exclude_page_tag_ids.iter().copied())
+    let excluded_pages = graph
+        .blocks_with_references(&exclude_page_tags)
+        .map(|block| block.containing_page)
+        .chain(
+            exclude_page_tags
+                .iter()
+                .filter_map(|tag| graph.titles.get(*tag))
+                .copied(),
+        )
         .collect::<FxHashSet<usize>>();
 
     let exclude_tag_names = config
@@ -103,15 +91,15 @@ pub fn make_pages<'a, 'b>(
     let pages_by_title = graph
         .pages()
         .map(|page| {
-            let slug = match page.referenced_attrs.get(main_tag_uid).map(|v| &v[0]) {
-                // The page sets the filename manually.
-                Some(AttrValue::Str(s)) => s.clone(),
-                // Otherwise generate it from the title.
-                _ => title_to_slug(page.title.as_ref().unwrap()),
-            };
+            let slug = page
+                .attrs
+                .get(main_tag_uid)
+                .map(|v| &v[0])
+                .cloned()
+                .unwrap_or_else(|| title_to_slug(page.page_title.as_ref().unwrap()));
 
             (
-                page.title.clone().unwrap(),
+                page.page_title.clone().unwrap(),
                 IdSlugUid {
                     id: page.id,
                     slug,
@@ -125,21 +113,19 @@ pub fn make_pages<'a, 'b>(
         .blocks
         .iter()
         .filter_map(|(_, block)| {
-            if !config.include_all && !block.refs.iter().any(|r| tag_node_ids.contains(r)) {
+            if !config.include_all && !block.tags.iter().any(|tag| all_filter_tags.contains(tag)) {
                 return None;
             }
 
-            let page = graph.blocks.get(&block.page)?;
-            let title = page.title.as_ref()?;
+            let page = graph.blocks.get(&block.containing_page)?;
+            let title = page.page_title.as_ref()?;
 
             if title.starts_with("roam/") {
                 // Don't include pages in roam/...
                 return None;
             }
 
-            if excluded_page_ids.get(&page.id).is_some()
-                || (page.log_id > 0 && !config.allow_daily_notes)
-            {
+            if excluded_pages.contains(&page.id) || (page.is_journal && !config.allow_daily_notes) {
                 // println!("Excluded: {}", page.title.as_ref().unwrap());
                 return None;
             }
@@ -190,7 +176,7 @@ pub fn make_pages<'a, 'b>(
             let block = graph.blocks.get(id).unwrap();
 
             let tags_set = tags_attr_uid
-                .and_then(|uid| block.referenced_attrs.get(uid))
+                .and_then(|uid| block.attrs.get(uid))
                 .map(|values| {
                     values
                         .iter()

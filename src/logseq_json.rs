@@ -26,6 +26,8 @@ pub struct JsonBlock {
     pub children: Vec<JsonBlock>,
     pub format: Option<BlockFormat>,
     pub content: Option<String>,
+    #[serde(rename = "heading-level")]
+    pub heading_level: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -40,6 +42,7 @@ pub struct Block {
     pub public: bool,
     pub tags: Vec<String>,
     pub children: SmallVec<[String; 2]>,
+    pub heading: usize,
 }
 
 pub struct Graph {
@@ -84,12 +87,25 @@ impl Graph {
             self.add_block_and_children(child)?;
         }
 
+        let heading = json_block.heading_level.unwrap_or_else(|| {
+            match json_block
+                .properties
+                .get("heading")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                true => 1,
+                false => 0,
+            }
+        });
+
         let block = Block {
             id: json_block.id,
             page_name: json_block.page_name,
             properties: json_block.properties,
             format: json_block.format.unwrap_or(BlockFormat::Unknown),
             content: json_block.content,
+            heading,
 
             children,
             public,

@@ -17,7 +17,8 @@ use std::fs::File;
 use std::io::Read;
 use zip::read::ZipArchive;
 
-use make_pages::make_pages;
+use crate::config::PkmProduct;
+use crate::make_pages::make_pages;
 
 fn main() -> Result<()> {
     let config = Config::load()?;
@@ -44,7 +45,11 @@ fn main() -> Result<()> {
 
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
-    let graph = roam_edn::Graph::from_edn(&raw_data)?;
+    let graph = match config.product {
+        PkmProduct::Roam => roam_edn::graph_from_roam_edn(&raw_data),
+        PkmProduct::Logseq => unimplemented!(),
+    }?;
+
     let pages = make_pages(&graph, &hbars, &highlighter, &config)?;
 
     println!("Wrote {page_count} pages", page_count = pages.len());
