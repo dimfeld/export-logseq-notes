@@ -33,49 +33,29 @@ pub struct JsonBlock {
     pub heading_level: Option<usize>,
 }
 
-#[derive(Debug)]
-pub struct LogseqBlock {
-    pub id: usize,
-    /// The ID of the block from Logseq
-    pub uid: String,
-    pub page_name: Option<String>,
-    pub containing_page: usize,
-    pub properties: FxHashMap<String, serde_json::Value>,
-    pub format: BlockFormat,
-    pub content: Option<String>,
-
-    // Values derived from the JSON block format
-    pub public: bool,
-    pub tags: SmallVec<[String; 2]>,
-    pub attrs: FxHashMap<String, SmallVec<[String; 1]>>,
-    pub children: SmallVec<[usize; 2]>,
-    pub parent: Option<usize>,
-    pub heading: usize,
-}
-
 pub struct LogseqGraph {
-    pub blocks: BTreeMap<usize, LogseqBlock>,
-    // Map of titles to page IDs
-    pub titles: FxHashMap<String, usize>,
-
     next_id: usize,
+
+    graph: Graph,
 }
 
 impl LogseqGraph {
-    pub fn from_json(data: &str) -> Result<LogseqGraph, anyhow::Error> {
-        let mut graph = LogseqGraph {
-            blocks: BTreeMap::new(),
-            titles: FxHashMap::default(),
-            next_id: 0,
-        };
-
+    // This is a weird way to do it since the "constructor" returns a Graph instead of a
+    // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
+    // to keep the LogseqGraph around.
+    pub fn from_json(data: &str) -> Result<Graph, anyhow::Error> {
         let file: JsonFile = serde_json::from_str(data)?;
 
+        let mut lsgraph = LogseqGraph {
+            next_id: 0,
+            graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
+        };
+
         for block in file.blocks {
-            graph.add_block_and_children(None, None, &block)?;
+            lsgraph.add_block_and_children(None, None, &block)?;
         }
 
-        Ok(graph)
+        Ok(lsgraph.graph)
     }
 
     fn add_block_and_children(
@@ -84,11 +64,6 @@ impl LogseqGraph {
         page_id: Option<usize>,
         json_block: &JsonBlock,
     ) -> Result<usize, anyhow::Error> {
-        let public = json_block
-            .properties
-            .get("public")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
         let tags = json_block
             .properties
             .get("tags")
@@ -133,64 +108,37 @@ impl LogseqGraph {
             }
         });
 
-        let block = LogseqBlock {
+        let block = Block {
             id: this_id,
             uid: json_block.id.clone(),
-            page_name: json_block.page_name.clone(),
+            page_title: json_block.page_name.clone(),
             containing_page: page_id.unwrap(),
-            properties: json_block.properties.clone(),
-            format: json_block.format.unwrap_or(BlockFormat::Unknown),
-            content: json_block.content.clone(),
+            attrs,
+            // format: json_block.format.unwrap_or(BlockFormat::Unknown),
+            string: json_block.content.clone().unwrap_or_default(),
             heading,
 
             parent: parent_id,
             children,
-            public,
             tags,
-            attrs,
+
+            order: 0,
+            view_type: crate::graph::ViewType::Bullet,
+            is_journal: false,
+            create_time: 0,
+            edit_time: 0,
         };
 
         self.next_id += 1;
 
-        if let Some(title) = block.page_name.as_ref() {
-            self.titles.insert(title.to_string(), block.id);
-        }
-        self.blocks.insert(this_id, block);
+        self.graph.add_block(block);
 
         Ok(this_id)
     }
 }
 
-pub fn graph_from_logseq_json(path: &str) -> Result<Graph, anyhow::Error> {
-    let mut logseq_graph = LogseqGraph::from_json(path)?;
-    let mut graph = Graph::new(crate::parse_string::ContentStyle::Logseq, false);
-
-    for lsblock in logseq_graph.blocks.values_mut() {
-        let block = Block {
-            id: lsblock.id,
-            uid: lsblock.uid.clone(),
-            tags: lsblock.tags.clone(),
-            attrs: lsblock.attrs.clone(),
-            heading: lsblock.heading,
-            page_title: lsblock.page_name.clone(),
-            order: 0,
-            create_time: 0,
-            string: lsblock.content.take().unwrap_or_default(),
-            view_type: crate::graph::ViewType::Bullet,
-
-            parent: lsblock.parent,
-            children: lsblock.children.clone(),
-            containing_page: lsblock.containing_page,
-
-            // TODO Figure out a good way to get these values.
-            is_journal: false,
-            edit_time: 0,
-        };
-
-        graph.add_block(block);
-    }
-
-    Ok(graph)
+pub fn graph_from_logseq_json(data: &str) -> Result<Graph, anyhow::Error> {
+    LogseqGraph::from_json(data)
 }
 
 /// Convert a JSON value to a string, without the quotes around strings
