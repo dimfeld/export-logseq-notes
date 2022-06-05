@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs::File, io::BufReader};
+use std::collections::BTreeMap;
 
 use fxhash::FxHashMap;
 use serde::Deserialize;
@@ -24,6 +24,7 @@ pub struct JsonBlock {
     pub id: String,
     #[serde(rename = "page-name")]
     pub page_name: Option<String>,
+    #[serde(default)]
     pub properties: FxHashMap<String, serde_json::Value>,
     pub children: Vec<JsonBlock>,
     pub format: Option<BlockFormat>,
@@ -61,15 +62,14 @@ pub struct LogseqGraph {
 }
 
 impl LogseqGraph {
-    pub fn from_json(filename: &str) -> Result<LogseqGraph, anyhow::Error> {
+    pub fn from_json(data: &str) -> Result<LogseqGraph, anyhow::Error> {
         let mut graph = LogseqGraph {
             blocks: BTreeMap::new(),
             titles: FxHashMap::default(),
             next_id: 0,
         };
 
-        let file = BufReader::new(File::open(filename)?);
-        let file: JsonFile = serde_json::from_reader(file)?;
+        let file: JsonFile = serde_json::from_str(data)?;
 
         for block in file.blocks {
             graph.add_block_and_children(None, None, &block)?;
@@ -93,7 +93,7 @@ impl LogseqGraph {
             .properties
             .get("tags")
             .and_then(|v| v.as_array())
-            .map(|array| array.iter().map(|v| v.to_string()).collect::<SmallVec<_>>())
+            .map(|array| array.iter().map(json_to_string).collect::<SmallVec<_>>())
             .unwrap_or_default();
 
         let attrs = json_block
@@ -103,13 +103,8 @@ impl LogseqGraph {
                 // Convert an array to an array of each string, or a singleton to a one-value array.
                 let values = v
                     .as_array()
-                    .map(|values| {
-                        values
-                            .iter()
-                            .map(|value| value.to_string())
-                            .collect::<SmallVec<_>>()
-                    })
-                    .unwrap_or_else(|| smallvec![v.to_string()]);
+                    .map(|values| values.iter().map(json_to_string).collect::<SmallVec<_>>())
+                    .unwrap_or_else(|| smallvec![json_to_string(v)]);
 
                 (k.clone(), values)
             })
@@ -122,7 +117,7 @@ impl LogseqGraph {
 
         let mut children = SmallVec::new();
         for child in &json_block.children {
-            let child_id = self.add_block_and_children(Some(this_id), page_id, &child)?;
+            let child_id = self.add_block_and_children(Some(this_id), page_id, child)?;
             children.push(child_id);
         }
 
@@ -196,4 +191,12 @@ pub fn graph_from_logseq_json(path: &str) -> Result<Graph, anyhow::Error> {
     }
 
     Ok(graph)
+}
+
+/// Convert a JSON value to a string, without the quotes around strings
+fn json_to_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.to_string(),
+        _ => value.to_string(),
+    }
 }
