@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::graph::Graph;
 use crate::page::{IdSlugUid, Page, TitleAndUid, TitleSlugUid};
 use crate::syntax_highlight;
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -100,6 +100,10 @@ pub fn make_pages<'a, 'b>(
                 .as_ref()
                 .and_then(|attr_name| block.attrs.get(attr_name))
                 .map(|v| v[0] == "true");
+
+            // if block.tags.len() > 0 {
+            //     println!("{:?}", block.tags);
+            // }
 
             if (config.include_all && matches!(bool_include_attr, Some(false)))
                 || (!config.include_all
@@ -217,7 +221,8 @@ pub fn make_pages<'a, 'b>(
             };
             let full_page = handlebars.render("page", &template_data)?;
 
-            let mut writer = std::fs::File::create(output_path)?;
+            let mut writer = std::fs::File::create(&output_path)
+                .with_context(|| format!("Writing {}", output_path.to_string_lossy()))?;
             writer.write_all(full_page.as_bytes())?;
             writer.flush()?;
 
@@ -234,7 +239,8 @@ pub fn make_pages<'a, 'b>(
         .collect::<Result<FxHashMap<_, _>>>()?;
 
     let manifest_path = config.output.join("manifest.json");
-    let mut manifest_writer = std::fs::File::create(manifest_path)?;
+    let mut manifest_writer = std::fs::File::create(&manifest_path)
+        .with_context(|| format!("Writing {}", manifest_path.to_string_lossy()))?;
     serde_json::to_writer_pretty(&manifest_writer, &pages)?;
     manifest_writer.flush()?;
     drop(manifest_writer);
