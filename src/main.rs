@@ -24,18 +24,6 @@ use crate::make_pages::make_pages;
 fn main() -> Result<()> {
     let config = Config::load()?;
 
-    let mut f =
-        File::open(&config.file).with_context(|| format!("Opening {}", config.file.display()))?;
-    let mut raw_data = String::new();
-    if config.file.extension().map(|e| e == "zip").unwrap_or(false) {
-        let mut zip_reader = ZipArchive::new(f)?;
-        let mut file = zip_reader.by_index(0)?;
-        file.read_to_string(&mut raw_data)?;
-    } else {
-        f.read_to_string(&mut raw_data)?;
-        drop(f);
-    }
-
     let hbars = template::create(&config.template)?;
 
     let highlight_class_prefix = config.highlight_class_prefix.clone().map(|p| {
@@ -47,8 +35,21 @@ fn main() -> Result<()> {
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
     let graph = match config.product {
-        PkmProduct::Roam => roam_edn::graph_from_roam_edn(&raw_data)?,
-        PkmProduct::Logseq => logseq_json::graph_from_logseq_json(&raw_data)?,
+        PkmProduct::Roam => {
+            let mut f = File::open(&config.path)
+                .with_context(|| format!("Opening {}", config.path.display()))?;
+            let mut raw_data = String::new();
+            if config.path.extension().map(|e| e == "zip").unwrap_or(false) {
+                let mut zip_reader = ZipArchive::new(f)?;
+                let mut file = zip_reader.by_index(0)?;
+                file.read_to_string(&mut raw_data)?;
+            } else {
+                f.read_to_string(&mut raw_data)?;
+                drop(f);
+            }
+            roam_edn::graph_from_roam_edn(&raw_data)?
+        }
+        PkmProduct::Logseq => logseq_json::LogseqGraph::build(config.path.clone())?,
     };
 
     let pages = make_pages(&graph, &hbars, &highlighter, &config)?;

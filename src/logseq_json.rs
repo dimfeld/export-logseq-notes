@@ -1,6 +1,14 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
+use anyhow::anyhow;
+use edn_rs::Edn;
 use fxhash::FxHashMap;
+use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
@@ -33,29 +41,93 @@ pub struct JsonBlock {
     pub heading_level: Option<usize>,
 }
 
+pub struct PageMetadata {
+    created_time: usize,
+    edited_time: usize,
+}
+
 pub struct LogseqGraph {
     next_id: usize,
-
+    root: PathBuf,
     graph: Graph,
+
+    page_metadata: FxHashMap<String, PageMetadata>,
 }
 
 impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
     // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
     // to keep the LogseqGraph around.
-    pub fn from_json(data: &str) -> Result<Graph, anyhow::Error> {
-        let file: JsonFile = serde_json::from_str(data)?;
-
+    pub fn build(path: PathBuf) -> Result<Graph, anyhow::Error> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
             graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
+            root: path,
+            page_metadata: FxHashMap::default(),
         };
 
-        for block in file.blocks {
-            lsgraph.add_block_and_children(None, None, &block)?;
-        }
+        lsgraph.read_page_metadata()?;
+        lsgraph.read_page_directory("pages", false)?;
+        lsgraph.read_page_directory("journals", true)?;
+
+        // for block in file.blocks {
+        //     lsgraph.add_block_and_children(None, None, &block)?;
+        // }
 
         Ok(lsgraph.graph)
+    }
+
+    fn read_page_metadata(&mut self) -> Result<(), anyhow::Error> {
+        let metadata_path = self.root.join("logseq").join("pages-metadata.edn");
+        let source = std::fs::read_to_string(metadata_path)?;
+        let data = Edn::from_str(source.as_str())?;
+
+        let blocks = match data {
+            Edn::Vector(blocks) => blocks.to_vec(),
+            _ => return Err(anyhow!("Unknown page-metadata format, expected list")),
+        };
+
+        self.page_metadata = blocks
+            .into_iter()
+            .map(|data| {
+                let block_name = data
+                    .get(":block/name")
+                    .map(|v| v.to_string())
+                    .ok_or_else(|| anyhow!("No block name found in page-metadata block"))?;
+                let created_time = data
+                    .get(":block/created-at")
+                    .and_then(|v| v.to_uint())
+                    .unwrap_or(0);
+                let edited_time = data
+                    .get(":block/edited-at")
+                    .and_then(|v| v.to_uint())
+                    .unwrap_or(0);
+
+                Ok((
+                    block_name,
+                    PageMetadata {
+                        created_time,
+                        edited_time,
+                    },
+                ))
+            })
+            .collect::<Result<_, anyhow::Error>>()?;
+
+        Ok(())
+    }
+
+    fn read_page_directory(&mut self, name: &str, is_journal: bool) -> Result<(), anyhow::Error> {
+        let dir = self.root.join(name);
+        let files = std::fs::read_dir(&dir)?
+            .map(|f| f.map(|f| f.path()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let blocks = files
+            .par_iter()
+            .map(|filename| read_logseq_md_file(filename))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(())
     }
 
     fn add_block_and_children(
@@ -137,8 +209,8 @@ impl LogseqGraph {
     }
 }
 
-pub fn graph_from_logseq_json(data: &str) -> Result<Graph, anyhow::Error> {
-    LogseqGraph::from_json(data)
+fn read_logseq_md_file(filename: &Path) -> Result<Vec<Block>, anyhow::Error> {
+    unimplemented!()
 }
 
 /// Convert a JSON value to a string, without the quotes around strings

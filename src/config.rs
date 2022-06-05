@@ -4,7 +4,6 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
-use toml;
 
 #[derive(Debug, Default, Deserialize, StructOpt)]
 struct InputConfig {
@@ -19,9 +18,9 @@ struct InputConfig {
         short,
         long,
         env,
-        help = "The graph file to open. Either an EDN file or a ZIP containing one"
+        help = "The graph file to open. A Roam EDN file or a logseq directory"
     )]
-    pub file: Option<PathBuf>,
+    pub path: Option<PathBuf>,
 
     #[structopt(short, long, env, help = "Output directory")]
     pub output: Option<PathBuf>,
@@ -150,7 +149,7 @@ impl FromStr for PkmProduct {
 }
 
 pub struct Config {
-    pub file: PathBuf,
+    pub path: PathBuf,
     pub output: PathBuf,
     pub product: PkmProduct,
     pub base_url: Option<String>,
@@ -213,7 +212,7 @@ impl Config {
         };
 
         let mut cfg = Config {
-            file: merge_required("file", cmdline_cfg.file, file_cfg.file)?,
+            path: merge_required("path", cmdline_cfg.path, file_cfg.path)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
