@@ -6,6 +6,7 @@ mod logseq_json;
 mod make_pages;
 mod page;
 mod parse_string;
+#[cfg(test)]
 mod parse_string_tests;
 mod roam_edn;
 mod string_builder;
@@ -46,9 +47,9 @@ fn main() -> Result<()> {
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
     let graph = match config.product {
-        PkmProduct::Roam => roam_edn::graph_from_roam_edn(&raw_data),
+        PkmProduct::Roam => roam_edn::graph_from_roam_edn(&raw_data)?,
         PkmProduct::Logseq => unimplemented!(),
-    }?;
+    };
 
     let pages = make_pages(&graph, &hbars, &highlighter, &config)?;
 

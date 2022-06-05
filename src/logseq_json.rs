@@ -10,7 +10,7 @@ pub struct JsonFile {
     blocks: Vec<JsonBlock>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Copy, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum BlockFormat {
     Markdown,
@@ -62,13 +62,13 @@ impl Graph {
         let file: JsonFile = serde_json::from_reader(file)?;
 
         for block in file.blocks {
-            graph.add_block_and_children(block)?;
+            graph.add_block_and_children(&block)?;
         }
 
         Ok(graph)
     }
 
-    fn add_block_and_children(&mut self, json_block: JsonBlock) -> Result<(), anyhow::Error> {
+    fn add_block_and_children(&mut self, json_block: &JsonBlock) -> Result<(), anyhow::Error> {
         let public = json_block
             .properties
             .get("public")
@@ -82,9 +82,9 @@ impl Graph {
             .unwrap_or_default();
 
         let mut children = SmallVec::new();
-        for child in json_block.children {
+        for child in &json_block.children {
             children.push(child.id.clone());
-            self.add_block_and_children(child)?;
+            self.add_block_and_children(&child)?;
         }
 
         let heading = json_block.heading_level.unwrap_or_else(|| {
@@ -100,11 +100,11 @@ impl Graph {
         });
 
         let block = Block {
-            id: json_block.id,
-            page_name: json_block.page_name,
-            properties: json_block.properties,
+            id: json_block.id.clone(),
+            page_name: json_block.page_name.clone(),
+            properties: json_block.properties.clone(),
             format: json_block.format.unwrap_or(BlockFormat::Unknown),
-            content: json_block.content,
+            content: json_block.content.clone(),
             heading,
 
             children,

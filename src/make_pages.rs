@@ -36,7 +36,10 @@ pub fn make_pages<'a, 'b>(
     highlighter: &'b syntax_highlight::Highlighter,
     config: &'a Config,
 ) -> Result<FxHashMap<String, TitleAndUid>> {
-    let mut all_filter_tags = vec![config.include.to_string()];
+    let mut all_filter_tags = Vec::new();
+    if let Some(include) = config.include.clone() {
+        all_filter_tags.push(include);
+    }
     all_filter_tags.extend_from_slice(&config.also);
 
     let exclude_page_tags = config
@@ -62,26 +65,6 @@ pub fn make_pages<'a, 'b>(
         .map(|s| s.as_str())
         .collect::<FxHashSet<_>>();
 
-    let main_tag_uid = graph
-        .titles
-        .get(&config.include)
-        .and_then(|tag| graph.blocks.get(tag))
-        .map(|b| b.uid.as_str())
-        .unwrap_or_default();
-
-    let tags_attr_uid = config
-        .tags_attr
-        .as_ref()
-        .map(|tags_attr| {
-            graph
-                .titles
-                .get(tags_attr)
-                .and_then(|tag| graph.blocks.get(tag))
-                .map(|b| b.uid.as_str())
-                .ok_or_else(|| anyhow!("Could not find tags attribute {}", tags_attr))
-        })
-        .transpose()?;
-
     let omitted_attributes = config
         .omit_attributes
         .iter()
@@ -91,11 +74,10 @@ pub fn make_pages<'a, 'b>(
     let pages_by_title = graph
         .pages()
         .map(|page| {
-            let slug = page
-                .attrs
-                .get(main_tag_uid)
-                .map(|v| &v[0])
-                .cloned()
+            let slug = config
+                .include
+                .as_ref()
+                .and_then(|include_attr| page.attrs.get(include_attr).map(|v| &v[0]).cloned())
                 .unwrap_or_else(|| title_to_slug(page.page_title.as_ref().unwrap()));
 
             (
@@ -113,7 +95,29 @@ pub fn make_pages<'a, 'b>(
         .blocks
         .iter()
         .filter_map(|(_, block)| {
-            if !config.include_all && !block.tags.iter().any(|tag| all_filter_tags.contains(tag)) {
+            let bool_include_attr = config
+                .bool_include_attr
+                .as_ref()
+                .and_then(|attr_name| block.attrs.get(attr_name))
+                .map(|v| v[0] == "true");
+
+            if (config.include_all && matches!(bool_include_attr, Some(false)))
+                || (!config.include_all
+                    && !block.tags.iter().any(|tag| all_filter_tags.contains(tag))
+                    && !block
+                        .attrs
+                        .iter()
+                        .any(|(attr_name, _)| all_filter_tags.contains(attr_name))
+                    && !matches!(bool_include_attr, Some(true)))
+            {
+                // If we're including all pages, continue to exclude pages where the bool include
+                // attribute is false.
+
+                // If we're not include all pages, then check:
+                // - The page tags to match the include tags
+                // - The page attributes to match the include tags
+                // - The boolean include attribute, if present
+                // Return None if none of those match.
                 return None;
             }
 
@@ -149,6 +153,14 @@ pub fn make_pages<'a, 'b>(
         })
         .collect::<FxHashMap<_, _>>();
 
+    let filter_tags = [
+        config.include.as_deref(),
+        config.bool_include_attr.as_deref(),
+    ]
+    .iter()
+    .filter_map(|v| *v)
+    .collect::<Vec<_>>();
+
     let pages = included_pages_by_title
         .par_iter()
         .map(|(title, IdSlugUid { id, slug, uid })| {
@@ -162,7 +174,7 @@ pub fn make_pages<'a, 'b>(
                 graph,
                 base_url: &config.base_url,
                 filter_link_only_blocks: config.filter_link_only_blocks,
-                filter_tag: &config.include,
+                filter_tags: &filter_tags,
                 pages_by_title: &pages_by_title,
                 included_pages_by_title: &included_pages_by_title,
                 included_pages_by_id: &included_pages_by_id,
@@ -175,25 +187,11 @@ pub fn make_pages<'a, 'b>(
 
             let block = graph.blocks.get(id).unwrap();
 
-            let tags_set = tags_attr_uid
-                .and_then(|uid| block.attrs.get(uid))
-                .map(|values| {
-                    values
-                        .iter()
-                        .flat_map(|attr| match attr {
-                            AttrValue::Str(s) => s.split(',').map(|s| s.trim()).collect::<Vec<_>>(),
-                            AttrValue::Uid(u) => graph
-                                .blocks_by_uid
-                                .get(u)
-                                .and_then(|id| graph.blocks.get(id))
-                                .filter(|block| block.uid != main_tag_uid)
-                                .and_then(|block| block.title.as_ref())
-                                .map(|title| vec![title.as_str()])
-                                .unwrap_or_else(Vec::new),
-                            _ => Vec::new(),
-                        })
-                        .collect::<FxHashSet<_>>()
-                })
+            let tags_set = config
+                .tags_attr
+                .as_deref()
+                .and_then(|tag_name| block.attrs.get(tag_name))
+                .map(|values| values.iter().map(|s| s.as_str()).collect::<FxHashSet<_>>())
                 .unwrap_or_else(FxHashSet::default);
 
             let hashtags = if config.use_all_hashtags {
@@ -205,7 +203,7 @@ pub fn make_pages<'a, 'b>(
             let tags = tags_set
                 .union(&hashtags)
                 .copied()
-                .filter(|&s| s != config.include && exclude_tag_names.get(s).is_none())
+                .filter(|&s| !filter_tags.contains(&s) && exclude_tag_names.get(s).is_none())
                 .collect::<Vec<_>>();
 
             // println!("{:?} {:?}", title, tags);

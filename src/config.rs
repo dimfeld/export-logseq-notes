@@ -49,6 +49,14 @@ struct InputConfig {
     pub include: Option<String>,
 
     #[structopt(
+        short,
+        long,
+        env,
+        help = r##"Include pages where this attribute has the value true, and exclude pages where this attribute has the value false. For Logseq this should usuallly be set to "public""##
+    )]
+    pub bool_include_attr: Option<String>,
+
+    #[structopt(
         long,
         env,
         help = "Additional hashtags, links, and attributes to indicate a page should be included. Unlike the primary tag filter, these will not be removed from the output"
@@ -147,7 +155,8 @@ pub struct Config {
     pub product: PkmProduct,
     pub base_url: Option<String>,
     pub namespace_dirs: bool, // TODO
-    pub include: String,
+    pub include: Option<String>,
+    pub bool_include_attr: Option<String>,
     pub also: Vec<String>,
     pub include_all: bool,
     pub allow_daily_notes: bool,
@@ -209,7 +218,8 @@ impl Config {
             product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
             namespace_dirs: merge_default(cmdline_cfg.namespace_dirs, file_cfg.namespace_dirs),
-            include: merge_required("include", cmdline_cfg.include, file_cfg.include)?,
+            include: cmdline_cfg.include.or(file_cfg.include),
+            bool_include_attr: cmdline_cfg.bool_include_attr.or(file_cfg.bool_include_attr),
             also: merge_default(cmdline_cfg.also, file_cfg.also),
             include_all: merge_default(cmdline_cfg.include_all, file_cfg.include_all),
             allow_daily_notes: merge_default(

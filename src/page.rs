@@ -6,7 +6,6 @@ use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
 use anyhow::{anyhow, Result};
 use fxhash::{FxHashMap, FxHashSet};
-use katex;
 use serde::Serialize;
 
 pub struct TitleSlugUid {
@@ -32,7 +31,7 @@ pub struct Page<'a, 'b> {
     pub title: String,
     pub slug: &'a str,
 
-    pub filter_tag: &'a str,
+    pub filter_tags: &'a [&'a str],
     pub graph: &'a Graph,
     pub base_url: &'a Option<String>,
     pub filter_link_only_blocks: bool,
@@ -106,7 +105,7 @@ impl<'a, 'b> Page<'a, 'b> {
             }
             None => {
                 // Block ref syntax can also be expandable text. So if we don't match on a block then just render it.
-                parse(s)
+                parse(self.graph.content_style, s)
                     .map_err(|e| anyhow!("Parse Error: {}", e))
                     .and_then(|expressions| {
                         self.render_expressions(containing_block, expressions, seen_hashtags, false)
@@ -117,8 +116,8 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     fn hashtag(&self, s: &'a str, dot: bool, omit_unexported_links: bool) -> StringBuilder<'a> {
-        if s == self.filter_tag {
-            // Don't render the primary export tag
+        if self.filter_tags.contains(&s) {
+            // Don't render the primary export tags
             return StringBuilder::Empty;
         }
 
@@ -301,7 +300,7 @@ impl<'a, 'b> Page<'a, 'b> {
         contents: Vec<Expression<'a>>,
         seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
-        if name == self.filter_tag || self.omitted_attributes.get(name).is_some() {
+        if self.filter_tags.contains(&name) || self.omitted_attributes.get(name).is_some() {
             return Ok((StringBuilder::Empty, false, true));
         }
 
@@ -371,7 +370,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 true,
             ),
             Expression::TripleBacktick(s) => (
-                format!("<pre><code>{}</code></pre>", self.highlighter.highlight(s)).into(),
+                format!("<pre><code>{}</code></pre>", self.highlighter.highlight(s)?).into(),
                 true,
                 true,
             ),
@@ -407,7 +406,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 let page = if self.embed_unincluded_pages {
                     self.pages_by_title.get(s)
                 } else {
-                    self.included_pages_by_title.get(s).map(|p| *p)
+                    self.included_pages_by_title.get(s).copied()
                 };
 
                 let result = page
@@ -444,7 +443,8 @@ impl<'a, 'b> Page<'a, 'b> {
         block: &'a Block,
         seen_hashtags: &mut FxHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
-        let parsed = parse(&block.string).map_err(|e| anyhow!("Parse Error: {:?}", e))?;
+        let parsed = parse(self.graph.content_style, &block.string)
+            .map_err(|e| anyhow!("Parse Error: {:?}", e))?;
 
         let filter_links = self.filter_link_only_blocks
             && parsed.iter().all(|e| match e {

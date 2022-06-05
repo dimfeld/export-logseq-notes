@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use fxhash::FxHashMap;
 use smallvec::SmallVec;
 
+use crate::parse_string::ContentStyle;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
     Bullet,
@@ -33,6 +35,9 @@ pub struct Block {
     pub string: String,
     pub heading: usize,
     pub view_type: ViewType,
+
+    pub edit_time: usize,
+    pub create_time: usize,
 }
 
 pub struct Graph {
@@ -44,16 +49,18 @@ pub struct Graph {
     /// appear in `children`
     pub block_explicit_ordering: bool,
 
+    pub content_style: ContentStyle,
     pub tagged_blocks: FxHashMap<String, Vec<usize>>,
 }
 
 impl Graph {
-    pub fn new(block_explicit_ordering: bool) -> Graph {
+    pub fn new(content_style: ContentStyle, block_explicit_ordering: bool) -> Graph {
         Graph {
             blocks: BTreeMap::new(),
             titles: FxHashMap::default(),
             blocks_by_uid: FxHashMap::default(),
             tagged_blocks: FxHashMap::default(),
+            content_style,
             block_explicit_ordering,
         }
     }

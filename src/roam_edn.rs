@@ -6,7 +6,10 @@ use std::convert::TryFrom;
 use std::mem;
 use std::str::FromStr;
 
-use crate::graph::{Block, Graph, ViewType};
+use crate::{
+    graph::{Block, Graph, ViewType},
+    parse_string::ContentStyle,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RoamViewType {
@@ -370,9 +373,9 @@ impl RoamGraph {
 
 pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
     let roam_graph = RoamGraph::from_edn(path)?;
-    let mut graph = Graph::new(true);
+    let mut graph = Graph::new(ContentStyle::Roam, true);
 
-    for (id, roam_block) in roam_graph.blocks {
+    for (id, roam_block) in &roam_graph.blocks {
         let tags = roam_block
             .refs
             .iter()
@@ -382,7 +385,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
 
         let attrs = roam_block
             .referenced_attrs
-            .into_iter()
+            .iter()
             .map(|(tag, values)| {
                 let values = values
                     .into_iter()
@@ -397,7 +400,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
                     })
                     .collect::<SmallVec<[String; 1]>>();
 
-                (tag, values)
+                (tag.clone(), values)
             })
             .collect::<_>();
 
@@ -409,17 +412,19 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
 
         let block = Block {
             id: roam_block.id,
-            uid: roam_block.uid,
+            uid: roam_block.uid.clone(),
             containing_page: roam_block.page,
-            page_title: roam_block.title,
+            page_title: roam_block.title.clone(),
             tags,
             attrs,
+            create_time: roam_block.create_time,
+            edit_time: roam_block.edit_time,
             is_journal: roam_block.log_id > 0,
 
             order: roam_block.order,
             parent: roam_block.parents.get(0).copied(),
-            children: roam_block.children,
-            string: roam_block.string,
+            children: roam_block.children.clone(),
+            string: roam_block.string.clone(),
             heading: roam_block.heading,
             view_type,
         };
