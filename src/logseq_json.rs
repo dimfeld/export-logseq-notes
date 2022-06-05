@@ -2,7 +2,9 @@ use std::{collections::BTreeMap, fs::File, io::BufReader};
 
 use fxhash::FxHashMap;
 use serde::Deserialize;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
+
+use crate::graph::{Block, Graph};
 
 #[derive(Deserialize, Debug)]
 pub struct JsonFile {
@@ -31,44 +33,57 @@ pub struct JsonBlock {
 }
 
 #[derive(Debug)]
-pub struct Block {
-    pub id: String,
+pub struct LogseqBlock {
+    pub id: usize,
+    /// The ID of the block from Logseq
+    pub uid: String,
     pub page_name: Option<String>,
+    pub containing_page: usize,
     pub properties: FxHashMap<String, serde_json::Value>,
     pub format: BlockFormat,
     pub content: Option<String>,
 
     // Values derived from the JSON block format
     pub public: bool,
-    pub tags: Vec<String>,
-    pub children: SmallVec<[String; 2]>,
+    pub tags: SmallVec<[String; 2]>,
+    pub attrs: FxHashMap<String, SmallVec<[String; 1]>>,
+    pub children: SmallVec<[usize; 2]>,
+    pub parent: Option<usize>,
     pub heading: usize,
 }
 
-pub struct Graph {
-    pub blocks: BTreeMap<String, Block>,
+pub struct LogseqGraph {
+    pub blocks: BTreeMap<usize, LogseqBlock>,
     // Map of titles to page IDs
-    pub titles: FxHashMap<String, String>,
+    pub titles: FxHashMap<String, usize>,
+
+    next_id: usize,
 }
 
-impl Graph {
-    pub fn from_json(filename: &str) -> Result<Graph, anyhow::Error> {
-        let mut graph = Graph {
+impl LogseqGraph {
+    pub fn from_json(filename: &str) -> Result<LogseqGraph, anyhow::Error> {
+        let mut graph = LogseqGraph {
             blocks: BTreeMap::new(),
             titles: FxHashMap::default(),
+            next_id: 0,
         };
 
         let file = BufReader::new(File::open(filename)?);
         let file: JsonFile = serde_json::from_reader(file)?;
 
         for block in file.blocks {
-            graph.add_block_and_children(&block)?;
+            graph.add_block_and_children(None, None, &block)?;
         }
 
         Ok(graph)
     }
 
-    fn add_block_and_children(&mut self, json_block: &JsonBlock) -> Result<(), anyhow::Error> {
+    fn add_block_and_children(
+        &mut self,
+        parent_id: Option<usize>,
+        page_id: Option<usize>,
+        json_block: &JsonBlock,
+    ) -> Result<usize, anyhow::Error> {
         let public = json_block
             .properties
             .get("public")
@@ -78,13 +93,37 @@ impl Graph {
             .properties
             .get("tags")
             .and_then(|v| v.as_array())
-            .map(|array| array.iter().map(|v| v.to_string()).collect::<Vec<_>>())
+            .map(|array| array.iter().map(|v| v.to_string()).collect::<SmallVec<_>>())
             .unwrap_or_default();
+
+        let attrs = json_block
+            .properties
+            .iter()
+            .map(|(k, v)| {
+                // Convert an array to an array of each string, or a singleton to a one-value array.
+                let values = v
+                    .as_array()
+                    .map(|values| {
+                        values
+                            .iter()
+                            .map(|value| value.to_string())
+                            .collect::<SmallVec<_>>()
+                    })
+                    .unwrap_or_else(|| smallvec![v.to_string()]);
+
+                (k.clone(), values)
+            })
+            .collect::<FxHashMap<_, _>>();
+
+        let this_id = self.next_id;
+        self.next_id += 1;
+
+        let page_id = page_id.or(Some(this_id));
 
         let mut children = SmallVec::new();
         for child in &json_block.children {
-            children.push(child.id.clone());
-            self.add_block_and_children(&child)?;
+            let child_id = self.add_block_and_children(Some(this_id), page_id, &child)?;
+            children.push(child_id);
         }
 
         let heading = json_block.heading_level.unwrap_or_else(|| {
@@ -99,35 +138,62 @@ impl Graph {
             }
         });
 
-        let block = Block {
-            id: json_block.id.clone(),
+        let block = LogseqBlock {
+            id: this_id,
+            uid: json_block.id.clone(),
             page_name: json_block.page_name.clone(),
+            containing_page: page_id.unwrap(),
             properties: json_block.properties.clone(),
             format: json_block.format.unwrap_or(BlockFormat::Unknown),
             content: json_block.content.clone(),
             heading,
 
+            parent: parent_id,
             children,
             public,
             tags,
+            attrs,
         };
 
+        self.next_id += 1;
+
         if let Some(title) = block.page_name.as_ref() {
-            self.titles.insert(title.to_string(), block.id.clone());
+            self.titles.insert(title.to_string(), block.id);
         }
-        self.blocks.insert(block.id.clone(), block);
+        self.blocks.insert(this_id, block);
 
-        Ok(())
+        Ok(this_id)
+    }
+}
+
+pub fn graph_from_logseq_json(path: &str) -> Result<Graph, anyhow::Error> {
+    let mut logseq_graph = LogseqGraph::from_json(path)?;
+    let mut graph = Graph::new(crate::parse_string::ContentStyle::Logseq, false);
+
+    for lsblock in logseq_graph.blocks.values_mut() {
+        let block = Block {
+            id: lsblock.id,
+            uid: lsblock.uid.clone(),
+            tags: lsblock.tags.clone(),
+            attrs: lsblock.attrs.clone(),
+            heading: lsblock.heading,
+            page_title: lsblock.page_name.clone(),
+            order: 0,
+            create_time: 0,
+            string: lsblock.content.take().unwrap_or_default(),
+            view_type: crate::graph::ViewType::Bullet,
+
+            parent: lsblock.parent,
+            children: lsblock.children.clone(),
+            containing_page: lsblock.containing_page,
+
+            // TODO Figure out a good way to get these values.
+            is_journal: false,
+            edit_time: 0,
+        };
+
+        graph.add_block(block);
     }
 
-    fn block_iter<F: FnMut(&(&String, &Block)) -> bool>(
-        &self,
-        filter: F,
-    ) -> impl Iterator<Item = &Block> {
-        self.blocks.iter().filter(filter).map(|(_, n)| n)
-    }
-
-    pub fn pages(&self) -> impl Iterator<Item = &Block> {
-        self.block_iter(|(_, n)| n.page_name.is_some())
-    }
+    Ok(graph)
 }

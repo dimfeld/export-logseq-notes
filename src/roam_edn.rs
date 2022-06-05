@@ -375,7 +375,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
     let roam_graph = RoamGraph::from_edn(path)?;
     let mut graph = Graph::new(ContentStyle::Roam, true);
 
-    for (id, roam_block) in &roam_graph.blocks {
+    for roam_block in roam_graph.blocks.values() {
         let tags = roam_block
             .refs
             .iter()

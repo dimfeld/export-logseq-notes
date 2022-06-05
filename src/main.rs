@@ -48,7 +48,7 @@ fn main() -> Result<()> {
 
     let graph = match config.product {
         PkmProduct::Roam => roam_edn::graph_from_roam_edn(&raw_data)?,
-        PkmProduct::Logseq => unimplemented!(),
+        PkmProduct::Logseq => logseq_json::graph_from_logseq_json(&raw_data)?,
     };
 
     let pages = make_pages(&graph, &hbars, &highlighter, &config)?;
