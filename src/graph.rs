@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use fxhash::FxHashMap;
 use smallvec::SmallVec;
 
-use crate::parse_string::ContentStyle;
+use crate::parse_string::{ContentStyle, Expression};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {

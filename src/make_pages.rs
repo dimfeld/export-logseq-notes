@@ -42,6 +42,12 @@ pub fn make_pages<'a, 'b>(
     }
     all_filter_tags.extend_from_slice(&config.also);
 
+    let all_filter_tags_for_regex = all_filter_tags.iter().map(|s| regex::escape(s)).join("|");
+    let all_filter_tags_regex = regex::Regex::new(&format!(
+        r##"(^|\s)#({})($|\s)"##,
+        all_filter_tags_for_regex
+    ))?;
+
     let exclude_page_tags = config
         .exclude
         .iter()
@@ -91,7 +97,7 @@ pub fn make_pages<'a, 'b>(
         })
         .collect::<FxHashMap<_, _>>();
 
-    let included_pages_by_title = graph
+    let included_page_ids = graph
         .blocks
         .iter()
         .filter_map(|(_, block)| {
@@ -113,6 +119,7 @@ pub fn make_pages<'a, 'b>(
                         .iter()
                         .any(|(attr_name, _)| all_filter_tags.contains(attr_name))
                     && !matches!(bool_include_attr, Some(true)))
+                    && !all_filter_tags_regex.is_match(block.string.as_str())
             {
                 // If we're including all pages, continue to exclude pages where the bool include
                 // attribute is false.
@@ -125,7 +132,14 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            let page = graph.blocks.get(&block.containing_page)?;
+            Some(block.containing_page)
+        })
+        .collect::<FxHashSet<_>>();
+
+    let included_pages_by_title = included_page_ids
+        .into_iter()
+        .filter_map(|page_id| {
+            let page = graph.blocks.get(&page_id)?;
             let title = page.page_title.as_ref()?;
 
             if title.starts_with("roam/") {
