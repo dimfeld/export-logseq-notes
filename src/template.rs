@@ -28,7 +28,7 @@ pub fn create(path: &Path) -> Result<Handlebars> {
                 return Err(e.into());
             }
 
-            // Try opening the file under `template/{path}`. If that fails, return the
+            // Try opening the file under `templates/{path}`. If that fails, return the
             // original error.
             let template_dir_path = Path::new("templates").join(path);
             File::open(template_dir_path)

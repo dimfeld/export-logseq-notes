@@ -1,5 +1,11 @@
-# The Roam graph to open. This can either be an EDN file or a ZIP file containing one.
-file = "roam.zip"
+# The graph export to open.
+# For Roam, this should be an EDN file.
+# For Logseq, this should be a JSON file.
+# The file may also be a ZIP file containing the export.
+file = "logseq_export.json"
+
+# roam or logseq
+product = "logseq"
 
 # Write the rendered pages into this directory
 output = "pages"
@@ -19,6 +25,10 @@ highlight_class_prefix = "hljs-"
 
 # Include pages with this tag that are not otherwise excluded. This hashtag will be removed from the output
 include = "note-export"
+
+# Include pages where this attribute is present and has the value "true".
+# When include_all is set, this attribute can also be used to exclude a page if it is present with a non-"true" value.
+bool_include_attr = "public"
 
 # Set to true to include all pages, except daily notes and those excluded by the `exclude` setting.
 include_all = false
