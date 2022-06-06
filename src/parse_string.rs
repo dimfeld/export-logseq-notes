@@ -58,7 +58,7 @@ fn nonws_char(c: char) -> bool {
 }
 
 fn word(input: &str) -> IResult<&str, &str> {
-    take_while1(nonws_char)(input)
+    take_while1(|c| nonws_char(c) && c != ',')(input)
 }
 
 fn fenced<'a>(start: &'a str, end: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
@@ -85,7 +85,7 @@ fn markdown_link(input: &str) -> IResult<&str, (&str, &str)> {
     )(input)
 }
 
-fn link_or_word(input: &str) -> IResult<&str, &str> {
+pub fn link_or_word(input: &str) -> IResult<&str, &str> {
     alt((link, word))(input)
 }
 
@@ -93,7 +93,7 @@ fn fixed_link_or_word<'a>(word: &'a str) -> impl FnMut(&'a str) -> IResult<&'a s
     alt((tag(word), delimited(tag("[["), tag(word), tag("]]"))))
 }
 
-fn hashtag(input: &str) -> IResult<&str, (&str, bool)> {
+pub fn hashtag(input: &str) -> IResult<&str, (&str, bool)> {
     map(
         preceded(char('#'), pair(opt(tag(".")), link_or_word)),
         |(has_dot, tag)| (tag, has_dot.is_some()),
@@ -323,7 +323,7 @@ fn parse_inline(style: ContentStyle, input: &str) -> IResult<&str, Vec<Expressio
 }
 
 /// Parses `Name:: Arbitrary [[text]]`
-fn attribute(style: ContentStyle, input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
+pub fn attribute(style: ContentStyle, input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
     // Roam doesn't trim whitespace on the attribute name, so we don't either.
     separated_pair(
         is_not(":`"),
