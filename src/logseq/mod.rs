@@ -1,3 +1,4 @@
+mod blocks;
 mod page_header;
 
 use std::{
@@ -212,7 +213,7 @@ fn read_logseq_md_file(filename: &Path) -> Result<Vec<Block>, anyhow::Error> {
 
     let (first_line, page_attrs) = page_header::parse_page_header(&mut lines)?;
 
-    let blocks = Vec::new();
+    let blocks = blocks::parse_blocks(first_line, &mut lines)?;
 
     Ok(blocks)
 }
