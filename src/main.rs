@@ -2,7 +2,7 @@ mod config;
 mod graph;
 mod html;
 mod links;
-mod logseq_json;
+mod logseq;
 mod make_pages;
 mod page;
 mod parse_string;
@@ -49,7 +49,7 @@ fn main() -> Result<()> {
             }
             roam_edn::graph_from_roam_edn(&raw_data)?
         }
-        PkmProduct::Logseq => logseq_json::LogseqGraph::build(config.path.clone())?,
+        PkmProduct::Logseq => logseq::LogseqGraph::build(config.path.clone())?,
     };
 
     let pages = make_pages(&graph, &hbars, &highlighter, &config)?;
