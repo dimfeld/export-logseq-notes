@@ -11,6 +11,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use edn_rs::Edn;
 use fxhash::FxHashMap;
+use itertools::{put_back, PutBack};
 use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
@@ -50,6 +51,8 @@ pub struct LogseqGraph {
 
     page_metadata: FxHashMap<String, PageMetadata>,
 }
+
+type LinesIterator<T> = PutBack<std::io::Lines<T>>;
 
 impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
@@ -206,16 +209,15 @@ impl LogseqGraph {
     }
 }
 
-fn read_logseq_md_file(filename: &Path) -> Result<Vec<Block>, anyhow::Error> {
+fn read_logseq_md_file(filename: &Path) -> Result<Block, anyhow::Error> {
     let file =
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
-    let mut lines = BufReader::new(file).lines();
+    let mut lines = put_back(BufReader::new(file).lines());
 
-    let (first_line, page_attrs) = page_header::parse_page_header(&mut lines)?;
+    let page_attrs = page_header::parse_page_header(&mut lines)?;
+    let blocks = blocks::parse_blocks(&mut lines)?;
 
-    let blocks = blocks::parse_blocks(first_line, &mut lines)?;
-
-    Ok(blocks)
+    todo!();
 }
 
 /// Convert a JSON value to a string, without the quotes around strings

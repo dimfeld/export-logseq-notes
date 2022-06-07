@@ -8,6 +8,8 @@ use std::io::BufRead;
 
 use crate::parse_string::{hashtag, link_or_word};
 
+use super::LinesIterator;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum HeaderParseState {
     None,
@@ -16,12 +18,12 @@ enum HeaderParseState {
 }
 
 pub fn parse_page_header(
-    lines: &mut std::io::Lines<impl BufRead>,
-) -> Result<(String, FxHashMap<String, Vec<String>>), anyhow::Error> {
+    lines: &mut LinesIterator<impl BufRead>,
+) -> Result<FxHashMap<String, Vec<String>>, anyhow::Error> {
     let mut page_attrs = FxHashMap::default();
     let first_line = lines.next().transpose()?.unwrap_or_default();
     if first_line.is_empty() {
-        return Ok((first_line, page_attrs));
+        return Ok(page_attrs);
     }
 
     let parse_attr_line = |separator, line: &str| {
@@ -64,13 +66,13 @@ pub fn parse_page_header(
         header_state = HeaderParseState::None;
     }
 
-    let line = if header_state == HeaderParseState::None {
+    let putback_line = if header_state == HeaderParseState::None {
         first_line
     } else {
         loop {
             let line = match (header_state, lines.next()) {
                 (_, None) => {
-                    return Ok((String::new(), page_attrs));
+                    return Ok(page_attrs);
                 }
                 (_, Some(Err(e))) => return Err(e.into()),
                 (HeaderParseState::None, _) => panic!("In header parse where state is None"),
@@ -106,7 +108,11 @@ pub fn parse_page_header(
         }
     };
 
-    Ok((line, page_attrs))
+    if !putback_line.is_empty() {
+        lines.put_back(Ok(putback_line));
+    }
+
+    Ok(page_attrs)
 }
 
 fn tag_value_separator(input: &str) -> IResult<&str, &str> {
@@ -134,14 +140,18 @@ mod test {
 
         use fxhash::FxHashMap;
         use indoc::indoc;
+        use itertools::put_back;
 
         use super::super::parse_page_header;
 
         fn run_test(
             input: &str,
         ) -> Result<(String, FxHashMap<String, Vec<String>>), anyhow::Error> {
-            let reader = std::io::BufReader::new(input.as_bytes());
-            parse_page_header(&mut reader.lines())
+            let mut reader = put_back(std::io::BufReader::new(input.as_bytes()).lines());
+            let attrs = parse_page_header(&mut reader)?;
+
+            let next_line = reader.next().transpose()?.unwrap_or_default();
+            Ok((next_line, attrs))
         }
 
         #[test]
@@ -173,7 +183,10 @@ mod test {
 
             assert_eq!(
                 run_test(input).unwrap(),
-                (String::new(), FxHashMap::<String, Vec<String>>::default())
+                (
+                    String::from("- the first block"),
+                    FxHashMap::<String, Vec<String>>::default()
+                )
             );
         }
 
@@ -193,7 +206,7 @@ mod test {
             assert_eq!(
                 run_test(input).unwrap(),
                 (
-                    String::new(),
+                    String::from("- some text"),
                     FxHashMap::<String, Vec<String>>::from_iter([
                         (String::from("title"), vec![String::from("It's a title")]),
                         (
