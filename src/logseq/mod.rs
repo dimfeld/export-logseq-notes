@@ -1,3 +1,4 @@
+mod attrs;
 mod blocks;
 mod page_header;
 

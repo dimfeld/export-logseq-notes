@@ -1,12 +1,5 @@
-use anyhow::anyhow;
 use fxhash::FxHashMap;
-use nom::{
-    branch::alt, bytes::complete::take_while1, character::is_space, combinator::map,
-    multi::separated_list0, IResult,
-};
 use std::io::BufRead;
-
-use crate::parse_string::{hashtag, link_or_word};
 
 use super::LinesIterator;
 
@@ -26,23 +19,6 @@ pub fn parse_page_header(
         return Ok(page_attrs);
     }
 
-    let parse_attr_line = |separator, line: &str| {
-        let parsed: Option<Result<_, anyhow::Error>> =
-            line.split_once(separator)
-                .map(|(attr_name, attr_value_str)| {
-                    let attr_value_str = attr_value_str.trim();
-                    let values = if attr_name == "tags" {
-                        parse_tag_values(attr_value_str)?
-                    } else {
-                        vec![attr_value_str.to_string()]
-                    };
-
-                    Ok((attr_name.to_string(), values))
-                });
-
-        parsed
-    };
-
     let header_state: HeaderParseState;
     if first_line.trim_end() == "---" {
         header_state = HeaderParseState::YamlFrontMatter;
@@ -50,10 +26,10 @@ pub fn parse_page_header(
         // Logseq Attribute front matter style
 
         // The first line is actually an attribute so we need to parse it.
-        let parsed = parse_attr_line("::", first_line.as_str());
+        let parsed = super::attrs::parse_attr_line("::", first_line.as_str());
 
         match parsed {
-            Some(Ok((attr_name, attr_values))) => {
+            Ok(Some((attr_name, attr_values))) => {
                 header_state = HeaderParseState::AttrFrontMatter;
                 page_attrs.insert(attr_name, attr_values);
             }
@@ -99,10 +75,10 @@ pub fn parse_page_header(
                 "::"
             };
 
-            let parsed = parse_attr_line(separator, line.as_str());
+            let parsed = super::attrs::parse_attr_line(separator, line.as_str());
 
             match parsed {
-                Some(Ok((attr_name, attr_values))) => page_attrs.insert(attr_name, attr_values),
+                Ok(Some((attr_name, attr_values))) => page_attrs.insert(attr_name, attr_values),
                 _ => break line,
             };
         }
@@ -113,23 +89,6 @@ pub fn parse_page_header(
     }
 
     Ok(page_attrs)
-}
-
-fn tag_value_separator(input: &str) -> IResult<&str, &str> {
-    take_while1(|c| is_space(c as u8) || c == ',')(input)
-}
-
-fn parse_tag_value(input: &str) -> IResult<&str, &str> {
-    alt((map(hashtag, |(value, _)| value), link_or_word))(input)
-}
-
-fn parse_tag_values(input: &str) -> Result<Vec<String>, anyhow::Error> {
-    let values = match separated_list0(tag_value_separator, parse_tag_value)(input) {
-        Ok((_, values)) => values,
-        Err(e) => return Err(anyhow!("Parsing {}: {}", input, e)),
-    };
-
-    Ok(values.iter().map(|v| v.to_string()).collect::<Vec<_>>())
 }
 
 #[cfg(test)]
@@ -242,66 +201,6 @@ mod test {
                     ])
                 )
             );
-        }
-    }
-
-    mod tag_values {
-        use super::super::{parse_tag_value, parse_tag_values, tag_value_separator};
-
-        #[test]
-        fn separator() {
-            tag_value_separator(" ").expect("parsing space");
-            tag_value_separator(",").expect("parsing comma");
-            tag_value_separator(", ").expect("parsing comma with trailing space");
-            tag_value_separator(" ,").expect("parsing comma with leading space");
-            tag_value_separator(" , ").expect("parsing comman with spaces on both sides");
-        }
-
-        #[test]
-        fn single_tag_values() {
-            assert_eq!(parse_tag_value("#abc").expect("hashtag"), ("", "abc"));
-            assert_eq!(parse_tag_value("abc").expect("raw value"), ("", "abc"));
-            assert_eq!(
-                parse_tag_value("[[abc def]]").expect("link"),
-                ("", "abc def")
-            );
-        }
-
-        #[test]
-        fn one_hashtag() {
-            assert_eq!(parse_tag_values("#abc").expect("parsing"), vec!["abc"])
-        }
-
-        #[test]
-        fn two_hashtags() {
-            assert_eq!(
-                parse_tag_values("#abc #def").expect("parsing"),
-                vec!["abc", "def"]
-            )
-        }
-
-        #[test]
-        fn two_raw_values() {
-            assert_eq!(
-                parse_tag_values("abc def").expect("parsing"),
-                vec!["abc", "def"]
-            )
-        }
-
-        #[test]
-        fn hashtags_with_commas() {
-            assert_eq!(
-                parse_tag_values("#abc, #def").expect("parsing"),
-                vec!["abc", "def"]
-            )
-        }
-
-        #[test]
-        fn values_with_commas() {
-            assert_eq!(
-                parse_tag_values("abc, def").expect("parsing"),
-                vec!["abc", "def"]
-            )
         }
     }
 }

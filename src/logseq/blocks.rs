@@ -1,6 +1,7 @@
 use std::io::BufRead;
 
 use anyhow::anyhow;
+use fxhash::FxHashMap;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
@@ -13,21 +14,26 @@ use smallvec::SmallVec;
 
 use crate::graph::Block;
 
-use super::LinesIterator;
+use super::{attrs::parse_attr_line, LinesIterator};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Line<'a> {
     contents: &'a str,
     indent: u32,
     new_block: bool,
+    attr_name: String,
+    attr_values: Vec<String>,
 }
 
 struct LogseqRawBlock {
+    id: String,
     contents: String,
     indent: u32,
 }
 
 pub fn parse_blocks(lines: &mut LinesIterator<impl BufRead>) -> Result<Vec<Block>, anyhow::Error> {
+    let raw_blocks = parse_raw_blocks(lines)?;
+
     todo!();
 }
 
@@ -62,6 +68,7 @@ fn read_raw_block(
     // Most blocks will just be one or two lines
     let mut line_contents: SmallVec<[String; 2]> = SmallVec::new();
     let mut indent = 0;
+    let mut id = String::new();
 
     loop {
         let line_read = lines.next();
@@ -74,7 +81,7 @@ fn read_raw_block(
             let parsed = evaulate_line(line.as_str())?;
             match parsed {
                 None => break,
-                Some(parsed) => {
+                Some(mut parsed) => {
                     if line_contents.is_empty() {
                         assert!(parsed.new_block);
                         indent = parsed.indent;
@@ -84,7 +91,13 @@ fn read_raw_block(
                         break;
                     }
 
-                    line_contents.push(parsed.contents.to_string());
+                    if parsed.attr_name == "id" {
+                        // Record the "id" attribute but omit it from the contents since it isn't added
+                        // by the user.
+                        id = parsed.attr_values.pop().unwrap_or_default();
+                    } else {
+                        line_contents.push(parsed.contents.to_string());
+                    }
                 }
             }
         } else {
@@ -97,6 +110,7 @@ fn read_raw_block(
     }
 
     let block_contents = LogseqRawBlock {
+        id,
         contents: line_contents.join("\n"),
         indent,
     };
@@ -110,7 +124,7 @@ fn count_indentation(input: &str) -> IResult<&str, u32> {
     })(input)
 }
 
-fn evaulate_line<'a>(line: &'a str) -> Result<Option<Line<'a>>, anyhow::Error> {
+fn evaulate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
     if line.is_empty() {
         return Ok(None);
     }
@@ -121,10 +135,17 @@ fn evaulate_line<'a>(line: &'a str) -> Result<Option<Line<'a>>, anyhow::Error> {
     ))(line)
     .map_err(|e| anyhow!("{}", e))?;
 
+    let (attr_name, attr_values) = match parse_attr_line("::", rest) {
+        Ok(Some(v)) => v,
+        _ => (String::new(), Vec::new()),
+    };
+
     Ok(Some(Line {
         contents: rest,
         indent,
         new_block: dash,
+        attr_name,
+        attr_values,
     }))
 }
 
@@ -148,7 +169,24 @@ mod test {
                 Line {
                     contents: "abc",
                     indent: 0,
-                    new_block: false
+                    new_block: false,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn extra_spaces_same_block() {
+            let input = "    abc";
+            assert_eq!(
+                evaulate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "  abc",
+                    indent: 0,
+                    new_block: false,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
                 }
             );
         }
@@ -161,7 +199,9 @@ mod test {
                 Line {
                     contents: "abc",
                     indent: 2,
-                    new_block: false
+                    new_block: false,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
                 }
             );
         }
@@ -174,7 +214,9 @@ mod test {
                 Line {
                     contents: "abc",
                     indent: 0,
-                    new_block: true
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
                 }
             );
         }
@@ -187,7 +229,39 @@ mod test {
                 Line {
                     contents: "abc",
                     indent: 2,
-                    new_block: true
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn new_block_attr_line() {
+            let input = "\t\t- abc:: def";
+            assert_eq!(
+                evaulate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc:: def",
+                    indent: 2,
+                    new_block: true,
+                    attr_name: String::from("abc"),
+                    attr_values: vec![String::from("def")]
+                }
+            );
+        }
+
+        #[test]
+        fn same_block_attr_line() {
+            let input = "\t\t  abc:: def";
+            assert_eq!(
+                evaulate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc:: def",
+                    indent: 2,
+                    new_block: false,
+                    attr_name: String::from("abc"),
+                    attr_values: vec![String::from("def")]
                 }
             );
         }

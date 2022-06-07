@@ -2,8 +2,8 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_until, take_while1},
     character::complete::{char, multispace0},
-    character::{complete::multispace1, is_newline, is_space},
-    combinator::{all_consuming, cond, map, map_opt, map_parser, opt, recognize},
+    character::{complete::multispace1, is_newline},
+    combinator::{all_consuming, cond, map, map_opt, map_parser, opt},
     error::context,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
     IResult,
@@ -54,7 +54,7 @@ pub enum Expression<'a> {
 }
 
 fn nonws_char(c: char) -> bool {
-    !is_space(c as u8) && !is_newline(c as u8)
+    !c.is_whitespace() && !is_newline(c as u8)
 }
 
 fn word(input: &str) -> IResult<&str, &str> {
