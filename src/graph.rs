@@ -18,6 +18,8 @@ impl Default for ViewType {
     }
 }
 
+pub type AttrList = SmallVec<[String; 1]>;
+
 pub struct Block {
     pub id: usize,
     pub containing_page: usize,
@@ -28,8 +30,8 @@ pub struct Block {
     pub children: SmallVec<[usize; 2]>,
     pub order: usize,
 
-    pub tags: SmallVec<[String; 2]>,
-    pub attrs: FxHashMap<String, SmallVec<[String; 1]>>,
+    pub tags: AttrList,
+    pub attrs: FxHashMap<String, AttrList>,
     pub is_journal: bool,
 
     pub string: String,

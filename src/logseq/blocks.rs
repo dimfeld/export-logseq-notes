@@ -1,18 +1,16 @@
 use std::io::BufRead;
 
 use anyhow::anyhow;
-use fxhash::FxHashMap;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
     combinator::{map, opt},
-    multi::many0,
     sequence::{terminated, tuple},
     IResult,
 };
 use smallvec::SmallVec;
 
-use crate::graph::Block;
+use crate::graph::{AttrList, Block};
 
 use super::{attrs::parse_attr_line, LinesIterator};
 
@@ -23,14 +21,14 @@ struct Line<'a> {
     header: u32,
     new_block: bool,
     attr_name: String,
-    attr_values: Vec<String>,
+    attr_values: AttrList,
 }
 
 pub struct LogseqRawBlock {
-    id: String,
-    header_level: usize,
-    contents: String,
-    indent: u32,
+    pub id: String,
+    pub header_level: usize,
+    pub contents: String,
+    pub indent: u32,
 }
 
 pub fn parse_raw_blocks(
@@ -146,7 +144,7 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
 
     let (attr_name, attr_values) = match parse_attr_line("::", rest) {
         Ok(Some(v)) => v,
-        _ => (String::new(), Vec::new()),
+        _ => (String::new(), SmallVec::new()),
     };
 
     Ok(Some(Line {
@@ -162,6 +160,8 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
 #[cfg(test)]
 mod test {
     mod evaluate_line {
+        use smallvec::{smallvec, SmallVec};
+
         use super::super::{evaluate_line, Line};
 
         #[test]
@@ -182,7 +182,7 @@ mod test {
                     header: 0,
                     new_block: false,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -198,7 +198,7 @@ mod test {
                     header: 0,
                     new_block: false,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -214,7 +214,7 @@ mod test {
                     header: 0,
                     new_block: false,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -230,7 +230,7 @@ mod test {
                     header: 0,
                     new_block: true,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -246,7 +246,7 @@ mod test {
                     header: 0,
                     new_block: true,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -262,7 +262,7 @@ mod test {
                     header: 1,
                     new_block: true,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -278,7 +278,7 @@ mod test {
                     header: 3,
                     new_block: true,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -294,7 +294,7 @@ mod test {
                     header: 0,
                     new_block: false,
                     attr_name: String::new(),
-                    attr_values: Vec::new(),
+                    attr_values: SmallVec::new(),
                 }
             );
         }
@@ -310,7 +310,7 @@ mod test {
                     header: 0,
                     new_block: true,
                     attr_name: String::from("abc"),
-                    attr_values: vec![String::from("def")]
+                    attr_values: smallvec![String::from("def")]
                 }
             );
         }
@@ -326,7 +326,7 @@ mod test {
                     header: 0,
                     new_block: false,
                     attr_name: String::from("abc"),
-                    attr_values: vec![String::from("def")]
+                    attr_values: smallvec![String::from("def")]
                 }
             );
         }

@@ -1,6 +1,8 @@
 use fxhash::FxHashMap;
 use std::io::BufRead;
 
+use crate::graph::AttrList;
+
 use super::LinesIterator;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -12,7 +14,7 @@ enum HeaderParseState {
 
 pub fn parse_page_header(
     lines: &mut LinesIterator<impl BufRead>,
-) -> Result<FxHashMap<String, Vec<String>>, anyhow::Error> {
+) -> Result<FxHashMap<String, AttrList>, anyhow::Error> {
     let mut page_attrs = FxHashMap::default();
     let first_line = lines.next().transpose()?.unwrap_or_default();
     if first_line.is_empty() {
@@ -100,12 +102,13 @@ mod test {
         use fxhash::FxHashMap;
         use indoc::indoc;
         use itertools::put_back;
+        use smallvec::smallvec;
+
+        use crate::graph::AttrList;
 
         use super::super::parse_page_header;
 
-        fn run_test(
-            input: &str,
-        ) -> Result<(String, FxHashMap<String, Vec<String>>), anyhow::Error> {
+        fn run_test(input: &str) -> Result<(String, FxHashMap<String, AttrList>), anyhow::Error> {
             let mut reader = put_back(std::io::BufReader::new(input.as_bytes()).lines());
             let attrs = parse_page_header(&mut reader)?;
 
@@ -123,7 +126,7 @@ mod test {
                 run_test(input).unwrap(),
                 (
                     String::from("- the first block"),
-                    FxHashMap::<String, Vec<String>>::default()
+                    FxHashMap::<String, AttrList>::default()
                 )
             );
         }
@@ -144,7 +147,7 @@ mod test {
                 run_test(input).unwrap(),
                 (
                     String::from("- the first block"),
-                    FxHashMap::<String, Vec<String>>::default()
+                    FxHashMap::<String, AttrList>::default()
                 )
             );
         }
@@ -166,11 +169,14 @@ mod test {
                 run_test(input).unwrap(),
                 (
                     String::from("- some text"),
-                    FxHashMap::<String, Vec<String>>::from_iter([
-                        (String::from("title"), vec![String::from("It's a title")]),
+                    FxHashMap::<String, AttrList>::from_iter([
+                        (
+                            String::from("title"),
+                            smallvec![String::from("It's a title")]
+                        ),
                         (
                             String::from("tags"),
-                            vec![String::from("a"), String::from("b"), String::from("c")]
+                            smallvec![String::from("a"), String::from("b"), String::from("c")]
                         )
                     ])
                 )
@@ -192,11 +198,14 @@ mod test {
                 run_test(input).unwrap(),
                 (
                     String::from("- some text"),
-                    FxHashMap::<String, Vec<String>>::from_iter([
-                        (String::from("title"), vec![String::from("It's a title")]),
+                    FxHashMap::<String, AttrList>::from_iter([
+                        (
+                            String::from("title"),
+                            smallvec![String::from("It's a title")]
+                        ),
                         (
                             String::from("tags"),
-                            vec![String::from("a"), String::from("b"), String::from("c")]
+                            smallvec![String::from("a"), String::from("b"), String::from("c")]
                         )
                     ])
                 )

@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::graph::{Block, Graph};
+use crate::graph::{AttrList, Block, Graph, ViewType, ViewType};
 
 use self::blocks::LogseqRawBlock;
 
@@ -138,10 +138,109 @@ impl LogseqGraph {
 
         let pages = raw_pages
             .into_par_iter()
-            .map(|raw_page| process_raw_page(raw_page))
+            .map(|page| self.process_raw_page(page, is_journal))
             .collect::<Vec<_>>();
 
         Ok(())
+    }
+
+    fn process_raw_page(&self, page: LogseqRawPage, is_journal: bool) -> Vec<Block> {
+        let title = page.attrs.remove("title").map(|values| values.remove(0));
+        let uid = page
+            .attrs
+            .remove("id")
+            .map(|values| values.remove(0))
+            .unwrap_or_default(); // TODO probably want to generate a uuid
+        let tags = page.attrs.remove("tags").unwrap_or_default();
+        let view_type = match page
+            .attrs
+            .get("view-mode")
+            .and_then(|values| values.get(0))
+            .map(|s| s.as_str())
+        {
+            Some("document") => ViewType::Document,
+            Some("numbered") => ViewType::Numbered,
+            _ => ViewType::Bullet,
+        };
+
+        let meta = title
+            .map(|t| t.to_lowercase())
+            .and_then(|t| self.page_metadata.get(&t));
+
+        let page_block = Block {
+            id: page.base_id,
+            uid,
+            containing_page: page.base_id,
+            page_title: title,
+            is_journal,
+            string: String::new(),
+            heading: 0,
+            view_type,
+            edit_time: meta.map(|m| m.edited_time).unwrap_or_default(),
+            create_time: meta.map(|m| m.created_time).unwrap_or_default(),
+            children: SmallVec::new(),
+
+            tags,
+            attrs: page.attrs,
+            parent: None,
+            order: 0,
+        };
+
+        let mut blocks = Vec::with_capacity(page.blocks.len() + 1);
+        blocks.push(page_block);
+
+        let mut block_id = page.base_id + 1;
+        let process_block = |mut parent_idx: usize, current_indent: u32, block_idx: usize| {
+            // parent_idx points to the output blocks
+            let parent_block = &mut blocks[parent_idx];
+            // block_idx points to the input blocks
+            let this_input = &mut page.blocks[block_idx];
+
+            // TODO need to get attrs for each block
+            let view_type = match this_input
+                .attrs
+                .get("view-mode")
+                .and_then(|values| values.get(0))
+                .map(|s| s.as_str())
+            {
+                Some("document") => ViewType::Document,
+                Some("numbered") => ViewType::Numbered,
+                _ => ViewType::Bullet,
+            };
+
+            let output_block = Block {
+                id: block_id,
+                uid: this_input.id,
+                order: 0,
+                parent: Some(parent_block.id),
+                children: SmallVec::new(),
+                attrs: FxHashMap::default(), // this_input.attrs,
+                tags: SmallVec::new(),
+                create_time: 0,
+                edit_time: 0,
+                // TODO Get this from attrs
+                view_type,
+                string: std::mem::take(&mut this_input.contents),
+                heading: this_input.header_level,
+                is_journal,
+                page_title: None,
+                containing_page: page.base_id,
+            };
+
+            block_id += 1;
+
+            if this_input.indent > current_indent {
+                // This is a child of the previous block
+            } else if this_input.indent < current_indent {
+                // This is going up a level from the previous block
+            } else {
+                // Same level as the previous block
+            }
+        };
+
+        process_block(0, 0, 0);
+
+        todo!();
     }
 
     fn add_block_and_children(
@@ -223,13 +322,9 @@ impl LogseqGraph {
     }
 }
 
-fn process_raw_page(page: LogseqRawPage) -> Vec<Block> {
-    Vec::new()
-}
-
 struct LogseqRawPage {
     base_id: usize,
-    attrs: FxHashMap<String, Vec<String>>,
+    attrs: FxHashMap<String, AttrList>,
     blocks: Vec<LogseqRawBlock>,
 }
 
@@ -238,8 +333,16 @@ fn read_logseq_md_file(filename: &Path) -> Result<LogseqRawPage, anyhow::Error> 
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
     let mut lines = put_back(BufReader::new(file).lines());
 
-    let page_attrs = page_header::parse_page_header(&mut lines)?;
+    let mut page_attrs = page_header::parse_page_header(&mut lines)?;
     let blocks = blocks::parse_raw_blocks(&mut lines)?;
+
+    if !page_attrs.contains_key("title") {
+        let title = filename
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .expect("file title");
+        page_attrs.insert(String::from("title"), smallvec![title]);
+    }
 
     Ok(LogseqRawPage {
         base_id: 0,
