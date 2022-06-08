@@ -26,7 +26,8 @@ struct Line<'a> {
 
 pub struct LogseqRawBlock {
     pub id: String,
-    pub header_level: usize,
+    pub parent_idx: Option<usize>,
+    pub header_level: u32,
     pub contents: String,
     pub indent: u32,
 }
@@ -34,13 +35,28 @@ pub struct LogseqRawBlock {
 pub fn parse_raw_blocks(
     lines: &mut LinesIterator<impl BufRead>,
 ) -> Result<Vec<LogseqRawBlock>, anyhow::Error> {
-    let mut blocks = Vec::new();
+    let mut blocks = Vec::<LogseqRawBlock>::new();
 
+    let mut current_indent = 0;
+    let mut current_parent: Option<usize> = None;
     loop {
         match read_raw_block(lines)? {
             RawBlockOutput::Done => break,
             RawBlockOutput::Empty => {}
-            RawBlockOutput::Block(block) => {
+            RawBlockOutput::Block(mut block) => {
+                if block.indent > current_indent {
+                    // A new child of the previous block.
+                    current_parent = Some(blocks.len() - 1);
+                } else if block.indent < current_indent {
+                    // Going up a level. Find the most recent block in the list
+                    // with the same indent level, and use its parent.
+                    current_parent = blocks.iter().rposition(|b| b.indent == block.indent);
+                }
+                // otherwise it's a sibling so it has the same parent
+
+                current_indent = block.indent;
+                block.parent_idx = current_parent;
+
                 blocks.push(block);
             }
         }
@@ -106,6 +122,8 @@ fn read_raw_block(
     let block_contents = LogseqRawBlock {
         id,
         header_level: 0,
+        // The caller will figure this out.
+        parent_idx: None,
         contents: line_contents.join("\n"),
         indent,
     };

@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::graph::{AttrList, Block, Graph, ViewType, ViewType};
+use crate::graph::{AttrList, Block, Graph, ViewType};
 
 use self::blocks::LogseqRawBlock;
 
@@ -144,12 +144,15 @@ impl LogseqGraph {
         Ok(())
     }
 
-    fn process_raw_page(&self, page: LogseqRawPage, is_journal: bool) -> Vec<Block> {
-        let title = page.attrs.remove("title").map(|values| values.remove(0));
+    fn process_raw_page(&self, mut page: LogseqRawPage, is_journal: bool) -> Vec<Block> {
+        let title = page
+            .attrs
+            .remove("title")
+            .map(|mut values| values.remove(0));
         let uid = page
             .attrs
             .remove("id")
-            .map(|values| values.remove(0))
+            .map(|mut values| values.remove(0))
             .unwrap_or_default(); // TODO probably want to generate a uuid
         let tags = page.attrs.remove("tags").unwrap_or_default();
         let view_type = match page
@@ -164,6 +167,7 @@ impl LogseqGraph {
         };
 
         let meta = title
+            .as_ref()
             .map(|t| t.to_lowercase())
             .and_then(|t| self.page_metadata.get(&t));
 
@@ -189,30 +193,31 @@ impl LogseqGraph {
         let mut blocks = Vec::with_capacity(page.blocks.len() + 1);
         blocks.push(page_block);
 
-        let mut block_id = page.base_id + 1;
-        let process_block = |mut parent_idx: usize, current_indent: u32, block_idx: usize| {
-            // parent_idx points to the output blocks
-            let parent_block = &mut blocks[parent_idx];
-            // block_idx points to the input blocks
-            let this_input = &mut page.blocks[block_idx];
-
+        for (i, input) in page.blocks.into_iter().enumerate() {
             // TODO need to get attrs for each block
-            let view_type = match this_input
-                .attrs
-                .get("view-mode")
-                .and_then(|values| values.get(0))
-                .map(|s| s.as_str())
-            {
-                Some("document") => ViewType::Document,
-                Some("numbered") => ViewType::Numbered,
-                _ => ViewType::Bullet,
-            };
+            // let view_type = match input
+            //     .attrs
+            //     .get("view-mode")
+            //     .and_then(|values| values.get(0))
+            //     .map(|s| s.as_str())
+            // {
+            //     Some("document") => ViewType::Document,
+            //     Some("numbered") => ViewType::Numbered,
+            //     _ => ViewType::Bullet,
+            // };
 
-            let output_block = Block {
-                id: block_id,
-                uid: this_input.id,
+            // The parent is either the index in the page, or it's the page block itself.
+            let parent_block_idx = input.parent_idx.map(|i| i + 1).unwrap_or(0);
+            let parent_id = parent_block_idx + page.base_id;
+
+            let this_id = page.base_id + i + 1;
+            blocks[parent_block_idx].children.push(this_id);
+
+            let block = Block {
+                id: this_id,
+                uid: input.id,
                 order: 0,
-                parent: Some(parent_block.id),
+                parent: Some(parent_id),
                 children: SmallVec::new(),
                 attrs: FxHashMap::default(), // this_input.attrs,
                 tags: SmallVec::new(),
@@ -220,27 +225,17 @@ impl LogseqGraph {
                 edit_time: 0,
                 // TODO Get this from attrs
                 view_type,
-                string: std::mem::take(&mut this_input.contents),
-                heading: this_input.header_level,
+                string: input.contents,
+                heading: input.header_level as usize,
                 is_journal,
                 page_title: None,
                 containing_page: page.base_id,
             };
 
-            block_id += 1;
+            blocks.push(block);
+        }
 
-            if this_input.indent > current_indent {
-                // This is a child of the previous block
-            } else if this_input.indent < current_indent {
-                // This is going up a level from the previous block
-            } else {
-                // Same level as the previous block
-            }
-        };
-
-        process_block(0, 0, 0);
-
-        todo!();
+        blocks
     }
 
     fn add_block_and_children(
