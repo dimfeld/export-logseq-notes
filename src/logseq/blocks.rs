@@ -10,7 +10,7 @@ use nom::{
 };
 use smallvec::SmallVec;
 
-use crate::graph::{AttrList, Block};
+use crate::graph::{AttrList, ViewType};
 
 use super::{attrs::parse_attr_line, LinesIterator};
 
@@ -24,11 +24,13 @@ struct Line<'a> {
     attr_values: AttrList,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct LogseqRawBlock {
     pub id: String,
     pub parent_idx: Option<usize>,
     pub header_level: u32,
     pub contents: String,
+    pub view_type: ViewType,
     pub indent: u32,
 }
 
@@ -50,7 +52,10 @@ pub fn parse_raw_blocks(
                 } else if block.indent < current_indent {
                     // Going up a level. Find the most recent block in the list
                     // with the same indent level, and use its parent.
-                    current_parent = blocks.iter().rposition(|b| b.indent == block.indent);
+                    current_parent = blocks
+                        .iter()
+                        .rfind(|b| b.indent == block.indent)
+                        .and_then(|block| block.parent_idx);
                 }
                 // otherwise it's a sibling so it has the same parent
 
@@ -79,6 +84,10 @@ fn read_raw_block(
     let mut line_contents: SmallVec<[String; 2]> = SmallVec::new();
     let mut indent = 0;
     let mut id = String::new();
+    let mut view_type = ViewType::Bullet;
+    let mut header = 0;
+
+    let mut all_done = false;
 
     loop {
         let line_read = lines.next();
@@ -101,31 +110,46 @@ fn read_raw_block(
                         break;
                     }
 
+                    if parsed.header > 0 {
+                        header = parsed.header;
+                    }
+
+                    // Extract special attributes and omit them from the output
                     if parsed.attr_name == "id" {
-                        // Record the "id" attribute but omit it from the contents since it isn't added
-                        // by the user.
                         id = parsed.attr_values.pop().unwrap_or_default();
+                    } else if parsed.attr_name == "view-mode" {
+                        view_type = parsed
+                            .attr_values
+                            .pop()
+                            .map(ViewType::from)
+                            .unwrap_or_default();
                     } else {
                         line_contents.push(parsed.contents.to_string());
                     }
                 }
             }
         } else {
-            return Ok(RawBlockOutput::Done);
+            all_done = true;
+            break;
         }
     }
 
     if line_contents.is_empty() {
-        return Ok(RawBlockOutput::Empty);
+        if all_done {
+            return Ok(RawBlockOutput::Done);
+        } else {
+            return Ok(RawBlockOutput::Empty);
+        }
     }
 
     let block_contents = LogseqRawBlock {
         id,
-        header_level: 0,
+        header_level: header,
         // The caller will figure this out.
         parent_idx: None,
-        contents: line_contents.join("\n"),
+        view_type,
         indent,
+        contents: line_contents.join("\n"),
     };
 
     Ok(RawBlockOutput::Block(block_contents))

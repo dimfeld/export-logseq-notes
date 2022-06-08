@@ -1,6 +1,8 @@
 mod attrs;
 mod blocks;
 mod page_header;
+#[cfg(test)]
+mod tests;
 
 use std::{
     fs::File,
@@ -155,16 +157,12 @@ impl LogseqGraph {
             .map(|mut values| values.remove(0))
             .unwrap_or_default(); // TODO probably want to generate a uuid
         let tags = page.attrs.remove("tags").unwrap_or_default();
-        let view_type = match page
+        let view_type = page
             .attrs
             .get("view-mode")
             .and_then(|values| values.get(0))
-            .map(|s| s.as_str())
-        {
-            Some("document") => ViewType::Document,
-            Some("numbered") => ViewType::Numbered,
-            _ => ViewType::Bullet,
-        };
+            .map(ViewType::from)
+            .unwrap_or_default();
 
         let meta = title
             .as_ref()
@@ -194,18 +192,6 @@ impl LogseqGraph {
         blocks.push(page_block);
 
         for (i, input) in page.blocks.into_iter().enumerate() {
-            // TODO need to get attrs for each block
-            // let view_type = match input
-            //     .attrs
-            //     .get("view-mode")
-            //     .and_then(|values| values.get(0))
-            //     .map(|s| s.as_str())
-            // {
-            //     Some("document") => ViewType::Document,
-            //     Some("numbered") => ViewType::Numbered,
-            //     _ => ViewType::Bullet,
-            // };
-
             // The parent is either the index in the page, or it's the page block itself.
             let parent_block_idx = input.parent_idx.map(|i| i + 1).unwrap_or(0);
             let parent_id = parent_block_idx + page.base_id;
@@ -223,8 +209,7 @@ impl LogseqGraph {
                 tags: SmallVec::new(),
                 create_time: 0,
                 edit_time: 0,
-                // TODO Get this from attrs
-                view_type,
+                view_type: input.view_type,
                 string: input.contents,
                 heading: input.header_level as usize,
                 is_journal,
@@ -317,6 +302,7 @@ impl LogseqGraph {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct LogseqRawPage {
     base_id: usize,
     attrs: FxHashMap<String, AttrList>,
@@ -327,9 +313,15 @@ fn read_logseq_md_file(filename: &Path) -> Result<LogseqRawPage, anyhow::Error> 
     let file =
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
     let mut lines = put_back(BufReader::new(file).lines());
+    parse_logseq_file(filename, &mut lines)
+}
 
-    let mut page_attrs = page_header::parse_page_header(&mut lines)?;
-    let blocks = blocks::parse_raw_blocks(&mut lines)?;
+fn parse_logseq_file(
+    filename: &Path,
+    lines: &mut LinesIterator<impl BufRead>,
+) -> Result<LogseqRawPage, anyhow::Error> {
+    let mut page_attrs = page_header::parse_page_header(lines)?;
+    let blocks = blocks::parse_raw_blocks(lines)?;
 
     if !page_attrs.contains_key("title") {
         let title = filename

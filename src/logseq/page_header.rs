@@ -96,65 +96,64 @@ pub fn parse_page_header(
 #[cfg(test)]
 mod test {
 
-    mod page_header {
-        use std::{io::BufRead, iter::FromIterator};
+    use std::{io::BufRead, iter::FromIterator};
 
-        use fxhash::FxHashMap;
-        use indoc::indoc;
-        use itertools::put_back;
-        use smallvec::smallvec;
+    use fxhash::FxHashMap;
+    use indoc::indoc;
+    use itertools::put_back;
+    use smallvec::smallvec;
 
-        use crate::graph::AttrList;
+    use crate::graph::AttrList;
 
-        use super::super::parse_page_header;
+    use super::parse_page_header;
 
-        fn run_test(input: &str) -> Result<(String, FxHashMap<String, AttrList>), anyhow::Error> {
-            let mut reader = put_back(std::io::BufReader::new(input.as_bytes()).lines());
-            let attrs = parse_page_header(&mut reader)?;
+    fn run_test(input: &str) -> Result<(String, FxHashMap<String, AttrList>), anyhow::Error> {
+        let mut reader = put_back(std::io::BufReader::new(input.as_bytes()).lines());
+        let attrs = parse_page_header(&mut reader)?;
 
-            let next_line = reader.next().transpose()?.unwrap_or_default();
-            Ok((next_line, attrs))
-        }
+        let next_line = reader.next().transpose()?.unwrap_or_default();
+        Ok((next_line, attrs))
+    }
 
-        #[test]
-        fn no_frontmatter() {
-            let input = r##"- the first block
+    #[test]
+    fn no_frontmatter() {
+        let input = r##"- the first block
                 - another block
                 "##;
 
-            assert_eq!(
-                run_test(input).unwrap(),
-                (
-                    String::from("- the first block"),
-                    FxHashMap::<String, AttrList>::default()
-                )
-            );
-        }
+        assert_eq!(
+            run_test(input).unwrap(),
+            (
+                String::from("- the first block"),
+                FxHashMap::<String, AttrList>::default()
+            )
+        );
+    }
 
-        #[test]
-        fn empty_yaml_frontmatter() {
-            let input = indoc! { r##"
+    #[test]
+    fn empty_yaml_frontmatter() {
+        let input = indoc! { r##"
                 ---
                 ---
                 - the first block
                 - another block
                 "##
-            };
+        };
 
-            println!("{}", input);
+        println!("{}", input);
 
-            assert_eq!(
-                run_test(input).unwrap(),
-                (
-                    String::from("- the first block"),
-                    FxHashMap::<String, AttrList>::default()
-                )
-            );
-        }
+        assert_eq!(
+            run_test(input).unwrap(),
+            (
+                String::from("- the first block"),
+                FxHashMap::<String, AttrList>::default()
+            )
+        );
+    }
 
-        #[test]
-        fn yaml_frontmatter() {
-            let input = indoc! { r##"
+    #[test]
+    fn yaml_frontmatter() {
+        let input = indoc! { r##"
                 ---
                 title: It's a title
                 tags: a, b, c
@@ -163,53 +162,52 @@ mod test {
                 "##
 
 
-            };
+        };
 
-            assert_eq!(
-                run_test(input).unwrap(),
-                (
-                    String::from("- some text"),
-                    FxHashMap::<String, AttrList>::from_iter([
-                        (
-                            String::from("title"),
-                            smallvec![String::from("It's a title")]
-                        ),
-                        (
-                            String::from("tags"),
-                            smallvec![String::from("a"), String::from("b"), String::from("c")]
-                        )
-                    ])
-                )
-            );
-        }
+        assert_eq!(
+            run_test(input).unwrap(),
+            (
+                String::from("- some text"),
+                FxHashMap::<String, AttrList>::from_iter([
+                    (
+                        String::from("title"),
+                        smallvec![String::from("It's a title")]
+                    ),
+                    (
+                        String::from("tags"),
+                        smallvec![String::from("a"), String::from("b"), String::from("c")]
+                    )
+                ])
+            )
+        );
+    }
 
-        #[test]
-        fn attr_frontmatter() {
-            let input = indoc! { r##"
+    #[test]
+    fn attr_frontmatter() {
+        let input = indoc! { r##"
                 title:: It's a title
                 tags:: a, b, c
                 - some text
                 "##
 
 
-            };
+        };
 
-            assert_eq!(
-                run_test(input).unwrap(),
-                (
-                    String::from("- some text"),
-                    FxHashMap::<String, AttrList>::from_iter([
-                        (
-                            String::from("title"),
-                            smallvec![String::from("It's a title")]
-                        ),
-                        (
-                            String::from("tags"),
-                            smallvec![String::from("a"), String::from("b"), String::from("c")]
-                        )
-                    ])
-                )
-            );
-        }
+        assert_eq!(
+            run_test(input).unwrap(),
+            (
+                String::from("- some text"),
+                FxHashMap::<String, AttrList>::from_iter([
+                    (
+                        String::from("title"),
+                        smallvec![String::from("It's a title")]
+                    ),
+                    (
+                        String::from("tags"),
+                        smallvec![String::from("a"), String::from("b"), String::from("c")]
+                    )
+                ])
+            )
+        );
     }
 }

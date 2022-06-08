@@ -18,6 +18,19 @@ impl Default for ViewType {
     }
 }
 
+impl<T> From<T> for ViewType
+where
+    for<'a> T: AsRef<str>,
+{
+    fn from(value: T) -> Self {
+        match value.as_ref() {
+            "document" => ViewType::Document,
+            "numbered" => ViewType::Numbered,
+            _ => ViewType::Bullet,
+        }
+    }
+}
+
 pub type AttrList = SmallVec<[String; 1]>;
 
 pub struct Block {
