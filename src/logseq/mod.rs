@@ -63,7 +63,7 @@ impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
     // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
     // to keep the LogseqGraph around.
-    pub fn build(path: PathBuf) -> Result<Graph, anyhow::Error> {
+    pub fn build(path: PathBuf, read_journals: bool) -> Result<Graph, anyhow::Error> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
             graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
