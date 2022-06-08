@@ -16,11 +16,13 @@ tags:: Project
 
 - # Some tools
 - Based on
+  view-mode:: document
 	- a book
 	- another book
 - ## Data Model Graph
 	- A mostly-DAG
 	- because of some exceptions
+	  id:: 93804e07-d826-44bc-94f4-18b07b0052b6
 	  view-mode:: numbered
 		- Exception 1
 			- maybe not
@@ -41,6 +43,7 @@ tags:: Project
         },
         LogseqRawBlock {
             contents: String::from("Based on"),
+            view_type: ViewType::Document,
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
@@ -68,6 +71,7 @@ tags:: Project
         },
         LogseqRawBlock {
             contents: String::from("because of some exceptions"),
+            id: String::from("93804e07-d826-44bc-94f4-18b07b0052b6"),
             indent: 1,
             parent_idx: Some(4),
             view_type: ViewType::Numbered,
