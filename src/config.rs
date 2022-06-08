@@ -20,12 +20,12 @@ struct InputConfig {
         env,
         help = "The graph file to open. A Roam EDN file or a logseq directory"
     )]
-    pub path: Option<PathBuf>,
+    pub data: Option<PathBuf>,
 
     #[structopt(short, long, env, help = "Output directory")]
     pub output: Option<PathBuf>,
 
-    #[structopt(short, long, env, help = "Data format to read")]
+    #[structopt(long, env, help = "Data format to read")]
     pub product: Option<PkmProduct>,
 
     #[structopt(long, env, help = "Base URL to apply to relative hyperlinks")]
@@ -132,7 +132,7 @@ pub enum PkmProduct {
 
 impl Default for PkmProduct {
     fn default() -> Self {
-        Self::Roam
+        Self::Logseq
     }
 }
 
@@ -178,7 +178,7 @@ fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<
 }
 
 fn merge_default<T: Default>(first: Option<T>, second: Option<T>) -> T {
-    first.or(second).unwrap_or_else(T::default)
+    first.or(second).unwrap_or_default()
 }
 
 impl Config {
@@ -212,7 +212,7 @@ impl Config {
         };
 
         let mut cfg = Config {
-            path: merge_required("path", cmdline_cfg.path, file_cfg.path)?,
+            path: merge_required("path", cmdline_cfg.data, file_cfg.data)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),

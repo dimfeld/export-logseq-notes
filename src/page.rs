@@ -4,7 +4,7 @@ use crate::links;
 use crate::parse_string::{parse, Expression};
 use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 
@@ -386,13 +386,11 @@ impl<'a, 'b> Page<'a, 'b> {
             Expression::Highlight(e) => {
                 self.render_style(block, "span", "rm-highlight", e, seen_hashtags)?
             }
-            Expression::Latex(e) => {
-                let opts = katex::Opts::builder()
-                    .output_type(katex::OutputType::HtmlAndMathml)
-                    .build()
-                    .unwrap();
-                (katex::render_with_opts(e, &opts)?.into(), true, true)
-            }
+            Expression::Latex(e) => (
+                katex::render(e).with_context(|| e.to_string())?.into(),
+                true,
+                true,
+            ),
             Expression::BlockQuote(e) => {
                 self.render_style(block, "blockquote", "rm-bq", e, seen_hashtags)?
             }
@@ -401,13 +399,36 @@ impl<'a, 'b> Page<'a, 'b> {
             Expression::BraceDirective(s) => self.render_brace_directive(block, s, seen_hashtags),
             Expression::Table => (self.render_table(block, seen_hashtags), true, false),
             Expression::HRule => (r##"<hr class="rm-hr" />"##.into(), true, true),
-            Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true, true),
+            Expression::BlockEmbed(s) => {
+                // let containing_page = self
+                //     .graph
+                //     .blocks
+                //     .get(&block.containing_page)
+                //     .and_then(|b| b.page_title.as_ref());
+                // let referenced_page = self
+                //     .graph
+                //     .blocks_by_uid
+                //     .get(s)
+                //     .and_then(|id| self.graph.blocks.get(id))
+                //     .and_then(|block| self.graph.blocks.get(&block.containing_page))
+                //     .and_then(|b| b.page_title.as_ref());
+                // println!("Page {containing_page:?} embedded block {s} in {referenced_page:?}");
+
+                (self.render_block_embed(s, seen_hashtags)?, true, true)
+            }
             Expression::PageEmbed(s) => {
                 let page = if self.embed_unincluded_pages {
                     self.pages_by_title.get(s)
                 } else {
                     self.included_pages_by_title.get(s).copied()
                 };
+
+                // let containing_page = self
+                //     .graph
+                //     .blocks
+                //     .get(&block.containing_page)
+                //     .and_then(|b| b.page_title.as_ref());
+                // println!("Page {containing_page:?} embedded page {s}");
 
                 let result = page
                     .map(|IdSlugUid { id: block_id, .. }| {

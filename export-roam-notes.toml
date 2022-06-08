@@ -1,7 +1,7 @@
 # The graph export to open.
 # For Roam, this should be an EDN file or a ZIP file containing it.
 # For Logseq, this should be the Logseq graph directory.
-path = "~/logseq"
+data = "/home/user/logseq"
 
 # roam or logseq
 product = "logseq"

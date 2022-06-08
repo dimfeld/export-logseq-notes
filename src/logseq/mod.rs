@@ -75,16 +75,13 @@ impl LogseqGraph {
         lsgraph.read_page_directory("pages", false)?;
         lsgraph.read_page_directory("journals", true)?;
 
-        // for block in file.blocks {
-        //     lsgraph.add_block_and_children(None, None, &block)?;
-        // }
-
         Ok(lsgraph.graph)
     }
 
     fn read_page_metadata(&mut self) -> Result<(), anyhow::Error> {
         let metadata_path = self.root.join("logseq").join("pages-metadata.edn");
-        let source = std::fs::read_to_string(metadata_path)?;
+        let source = std::fs::read_to_string(&metadata_path)
+            .with_context(|| format!("Reading metadata file {metadata_path:?}"))?;
         let data = Edn::from_str(source.as_str())?;
 
         let blocks = match data {
@@ -123,25 +120,30 @@ impl LogseqGraph {
 
     fn read_page_directory(&mut self, name: &str, is_journal: bool) -> Result<(), anyhow::Error> {
         let dir = self.root.join(name);
-        let files = std::fs::read_dir(&dir)?
+        let files = std::fs::read_dir(&dir)
+            .with_context(|| format!("{dir:?}"))?
             .map(|f| f.map(|f| f.path()))
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut raw_pages = files
             .par_iter()
-            .map(|file| read_logseq_md_file(file))
+            .map(|file| read_logseq_md_file(file).with_context(|| format!("{file:?}")))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Can't run this step in parallel
         for page in raw_pages.iter_mut() {
             page.base_id = self.next_id;
-            self.next_id += page.blocks.len()
+            self.next_id += page.blocks.len() + 1;
         }
 
-        let pages = raw_pages
+        let blocks = raw_pages
             .into_par_iter()
-            .map(|page| self.process_raw_page(page, is_journal))
+            .flat_map(|page| self.process_raw_page(page, is_journal))
             .collect::<Vec<_>>();
+
+        for block in blocks {
+            self.graph.add_block(block);
+        }
 
         Ok(())
     }
@@ -222,84 +224,6 @@ impl LogseqGraph {
 
         blocks
     }
-
-    fn add_block_and_children(
-        &mut self,
-        parent_id: Option<usize>,
-        page_id: Option<usize>,
-        json_block: &JsonBlock,
-    ) -> Result<usize, anyhow::Error> {
-        let tags = json_block
-            .properties
-            .get("tags")
-            .and_then(|v| v.as_array())
-            .map(|array| array.iter().map(json_to_string).collect::<SmallVec<_>>())
-            .unwrap_or_default();
-
-        let attrs = json_block
-            .properties
-            .iter()
-            .map(|(k, v)| {
-                // Convert an array to an array of each string, or a singleton to a one-value array.
-                let values = v
-                    .as_array()
-                    .map(|values| values.iter().map(json_to_string).collect::<SmallVec<_>>())
-                    .unwrap_or_else(|| smallvec![json_to_string(v)]);
-
-                (k.clone(), values)
-            })
-            .collect::<FxHashMap<_, _>>();
-
-        let this_id = self.next_id;
-        self.next_id += 1;
-
-        let page_id = page_id.or(Some(this_id));
-
-        let mut children = SmallVec::new();
-        for child in &json_block.children {
-            let child_id = self.add_block_and_children(Some(this_id), page_id, child)?;
-            children.push(child_id);
-        }
-
-        let heading = json_block.heading_level.unwrap_or_else(|| {
-            match json_block
-                .properties
-                .get("heading")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                true => 1,
-                false => 0,
-            }
-        });
-
-        let block = Block {
-            id: this_id,
-            uid: json_block.id.clone(),
-            page_title: json_block.page_name.clone(),
-            containing_page: page_id.unwrap(),
-            attrs,
-            // format: json_block.format.unwrap_or(BlockFormat::Unknown),
-            string: json_block.content.clone().unwrap_or_default(),
-            heading,
-
-            parent: parent_id,
-            children,
-            tags,
-
-            order: 0,
-            view_type: crate::graph::ViewType::Bullet,
-            is_journal: false,
-            create_time: 0,
-            edit_time: 0,
-        };
-
-        self.next_id += 1;
-
-        self.graph.add_block(block);
-
-        Ok(this_id)
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -336,12 +260,4 @@ fn parse_logseq_file(
         attrs: page_attrs,
         blocks,
     })
-}
-
-/// Convert a JSON value to a string, without the quotes around strings
-fn json_to_string(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.to_string(),
-        _ => value.to_string(),
-    }
 }

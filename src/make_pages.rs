@@ -132,6 +132,8 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
+            println!("Including block {block:?}");
+
             Some(block.containing_page)
         })
         .collect::<FxHashSet<_>>();
@@ -151,6 +153,8 @@ pub fn make_pages<'a, 'b>(
                 // println!("Excluded: {}", page.title.as_ref().unwrap());
                 return None;
             }
+
+            println!("Including {title}");
 
             let slug = pages_by_title.get(title).unwrap();
             Some((title.clone(), slug))

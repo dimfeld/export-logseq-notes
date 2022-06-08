@@ -4,8 +4,9 @@ use anyhow::anyhow;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
-    combinator::{map, opt},
-    sequence::{terminated, tuple},
+    character::complete::multispace0,
+    combinator::{all_consuming, map, opt},
+    sequence::{preceded, terminated, tuple},
     IResult,
 };
 use smallvec::SmallVec;
@@ -102,7 +103,7 @@ fn read_raw_block(
                 None => break,
                 Some(mut parsed) => {
                     if line_contents.is_empty() {
-                        assert!(parsed.new_block);
+                        assert!(parsed.new_block, "{line} {parsed:?}");
                         indent = parsed.indent;
                     } else if parsed.new_block {
                         // Done with this block.
@@ -171,7 +172,7 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
         alt((
             map(
                 tuple((
-                    tag("- "),
+                    preceded(multispace0, tag("- ")),
                     opt(terminated(
                         |input| count_repeated_char(input, '#'),
                         tag(" "),
@@ -179,7 +180,11 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
                 )),
                 |(_, header_level)| (true, header_level.unwrap_or(0)),
             ),
-            map(tag("  "), |_| (false, 0)),
+            // Empty block
+            map(all_consuming(tag("-")), |_| (true, 0)),
+            // Normally there are two preceding spaces, but in some imported blocks
+            // from Roam this is absent, so don't be strict about it.
+            map(opt(tag("  ")), |_| (false, 0)),
         )),
     ))(line)
     .map_err(|e| anyhow!("{}", e))?;
@@ -246,6 +251,22 @@ mod test {
         }
 
         #[test]
+        fn empty_block() {
+            let input = "-";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "",
+                    indent: 0,
+                    header: 0,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: SmallVec::new(),
+                }
+            );
+        }
+
+        #[test]
         fn indent_same_block() {
             let input = "\t\t  abc";
             assert_eq!(
@@ -280,6 +301,22 @@ mod test {
         #[test]
         fn indent_new_block() {
             let input = "\t\t- abc";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc",
+                    indent: 2,
+                    header: 0,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: SmallVec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn extra_space_before_dash() {
+            let input = "\t\t - abc";
             assert_eq!(
                 evaluate_line(input).unwrap().unwrap(),
                 Line {

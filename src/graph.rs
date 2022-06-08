@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use fxhash::FxHashMap;
 use smallvec::SmallVec;
 
-use crate::parse_string::{ContentStyle, Expression};
+use crate::parse_string::ContentStyle;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
@@ -33,6 +33,7 @@ where
 
 pub type AttrList = SmallVec<[String; 1]>;
 
+#[derive(Debug)]
 pub struct Block {
     pub id: usize,
     pub containing_page: usize,
