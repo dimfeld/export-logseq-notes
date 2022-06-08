@@ -104,7 +104,7 @@ impl LogseqGraph {
                     .and_then(|v| v.to_uint())
                     .unwrap_or(0);
                 let edited_time = data
-                    .get(":block/edited-at")
+                    .get(":block/updated-at")
                     .and_then(|v| v.to_uint())
                     .unwrap_or(0);
 
