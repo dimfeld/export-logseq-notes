@@ -94,7 +94,10 @@ impl LogseqGraph {
             .map(|data| {
                 let block_name = data
                     .get(":block/name")
-                    .map(|v| v.to_string())
+                    .and_then(|v| match v {
+                        Edn::Str(s) => Some(s.trim().to_string()),
+                        _ => None,
+                    })
                     .ok_or_else(|| anyhow!("No block name found in page-metadata block"))?;
                 let created_time = data
                     .get(":block/created-at")
