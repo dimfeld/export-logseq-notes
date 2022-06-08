@@ -19,6 +19,8 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::graph::{Block, Graph};
 
+use self::blocks::LogseqRawBlock;
+
 #[derive(Clone, Copy, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum BlockFormat {
@@ -123,10 +125,21 @@ impl LogseqGraph {
             .map(|f| f.map(|f| f.path()))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let blocks = files
+        let mut raw_pages = files
             .par_iter()
             .map(|file| read_logseq_md_file(file))
             .collect::<Result<Vec<_>, _>>()?;
+
+        // Can't run this step in parallel
+        for page in raw_pages.iter_mut() {
+            page.base_id = self.next_id;
+            self.next_id += page.blocks.len()
+        }
+
+        let pages = raw_pages
+            .into_par_iter()
+            .map(|raw_page| process_raw_page(raw_page))
+            .collect::<Vec<_>>();
 
         Ok(())
     }
@@ -210,15 +223,29 @@ impl LogseqGraph {
     }
 }
 
-fn read_logseq_md_file(filename: &Path) -> Result<Block, anyhow::Error> {
+fn process_raw_page(page: LogseqRawPage) -> Vec<Block> {
+    Vec::new()
+}
+
+struct LogseqRawPage {
+    base_id: usize,
+    attrs: FxHashMap<String, Vec<String>>,
+    blocks: Vec<LogseqRawBlock>,
+}
+
+fn read_logseq_md_file(filename: &Path) -> Result<LogseqRawPage, anyhow::Error> {
     let file =
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
     let mut lines = put_back(BufReader::new(file).lines());
 
     let page_attrs = page_header::parse_page_header(&mut lines)?;
-    let blocks = blocks::parse_blocks(&mut lines)?;
+    let blocks = blocks::parse_raw_blocks(&mut lines)?;
 
-    todo!();
+    Ok(LogseqRawPage {
+        base_id: 0,
+        attrs: page_attrs,
+        blocks,
+    })
 }
 
 /// Convert a JSON value to a string, without the quotes around strings

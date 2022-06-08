@@ -7,7 +7,7 @@ use nom::{
     bytes::complete::{tag, take_while},
     combinator::{map, opt},
     multi::many0,
-    sequence::tuple,
+    sequence::{terminated, tuple},
     IResult,
 };
 use smallvec::SmallVec;
@@ -20,24 +20,20 @@ use super::{attrs::parse_attr_line, LinesIterator};
 struct Line<'a> {
     contents: &'a str,
     indent: u32,
+    header: u32,
     new_block: bool,
     attr_name: String,
     attr_values: Vec<String>,
 }
 
-struct LogseqRawBlock {
+pub struct LogseqRawBlock {
     id: String,
+    header_level: usize,
     contents: String,
     indent: u32,
 }
 
-pub fn parse_blocks(lines: &mut LinesIterator<impl BufRead>) -> Result<Vec<Block>, anyhow::Error> {
-    let raw_blocks = parse_raw_blocks(lines)?;
-
-    todo!();
-}
-
-fn parse_raw_blocks(
+pub fn parse_raw_blocks(
     lines: &mut LinesIterator<impl BufRead>,
 ) -> Result<Vec<LogseqRawBlock>, anyhow::Error> {
     let mut blocks = Vec::new();
@@ -78,7 +74,7 @@ fn read_raw_block(
                 continue;
             }
 
-            let parsed = evaulate_line(line.as_str())?;
+            let parsed = evaluate_line(line.as_str())?;
             match parsed {
                 None => break,
                 Some(mut parsed) => {
@@ -111,6 +107,7 @@ fn read_raw_block(
 
     let block_contents = LogseqRawBlock {
         id,
+        header_level: 0,
         contents: line_contents.join("\n"),
         indent,
     };
@@ -118,20 +115,32 @@ fn read_raw_block(
     Ok(RawBlockOutput::Block(block_contents))
 }
 
-fn count_indentation(input: &str) -> IResult<&str, u32> {
-    map(take_while(|c| c == '\t'), |tabs: &str| {
-        tabs.chars().count() as u32
+fn count_repeated_char(input: &str, match_char: char) -> IResult<&str, u32> {
+    map(take_while(|c| c == match_char), |result: &str| {
+        result.chars().count() as u32
     })(input)
 }
 
-fn evaulate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
+fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
     if line.is_empty() {
         return Ok(None);
     }
 
-    let (rest, (indent, dash)) = tuple((
-        count_indentation,
-        alt((map(tag("- "), |_| true), map(tag("  "), |_| false))),
+    let (rest, (indent, (dash, header))) = tuple((
+        |input| count_repeated_char(input, '\t'),
+        alt((
+            map(
+                tuple((
+                    tag("- "),
+                    opt(terminated(
+                        |input| count_repeated_char(input, '#'),
+                        tag(" "),
+                    )),
+                )),
+                |(_, header_level)| (true, header_level.unwrap_or(0)),
+            ),
+            map(tag("  "), |_| (false, 0)),
+        )),
     ))(line)
     .map_err(|e| anyhow!("{}", e))?;
 
@@ -144,6 +153,7 @@ fn evaulate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
         contents: rest,
         indent,
         new_block: dash,
+        header,
         attr_name,
         attr_values,
     }))
@@ -151,13 +161,13 @@ fn evaulate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
 
 #[cfg(test)]
 mod test {
-    mod evaulate_line {
-        use super::super::{evaulate_line, Line};
+    mod evaluate_line {
+        use super::super::{evaluate_line, Line};
 
         #[test]
         fn empty_line() {
             let input = "";
-            let result = evaulate_line(input).unwrap();
+            let result = evaluate_line(input).unwrap();
             assert!(result.is_none(), "Should be none: {:?}", result);
         }
 
@@ -165,10 +175,11 @@ mod test {
         fn no_indent_same_block() {
             let input = "  abc";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 0,
+                    header: 0,
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: Vec::new(),
@@ -180,10 +191,11 @@ mod test {
         fn extra_spaces_same_block() {
             let input = "    abc";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "  abc",
                     indent: 0,
+                    header: 0,
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: Vec::new(),
@@ -195,10 +207,11 @@ mod test {
         fn indent_same_block() {
             let input = "\t\t  abc";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
+                    header: 0,
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: Vec::new(),
@@ -210,10 +223,11 @@ mod test {
         fn no_indent_new_block() {
             let input = "- abc";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 0,
+                    header: 0,
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: Vec::new(),
@@ -225,11 +239,60 @@ mod test {
         fn indent_new_block() {
             let input = "\t\t- abc";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
+                    header: 0,
                     new_block: true,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn header1() {
+            let input = "\t\t- # abc";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc",
+                    indent: 2,
+                    header: 1,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn header3() {
+            let input = "\t\t- ### abc";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc",
+                    indent: 2,
+                    header: 3,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: Vec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn hashes_on_second_line() {
+            let input = "\t\t  ### abc";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "### abc",
+                    indent: 2,
+                    header: 0,
+                    new_block: false,
                     attr_name: String::new(),
                     attr_values: Vec::new(),
                 }
@@ -240,10 +303,11 @@ mod test {
         fn new_block_attr_line() {
             let input = "\t\t- abc:: def";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "abc:: def",
                     indent: 2,
+                    header: 0,
                     new_block: true,
                     attr_name: String::from("abc"),
                     attr_values: vec![String::from("def")]
@@ -255,10 +319,11 @@ mod test {
         fn same_block_attr_line() {
             let input = "\t\t  abc:: def";
             assert_eq!(
-                evaulate_line(input).unwrap().unwrap(),
+                evaluate_line(input).unwrap().unwrap(),
                 Line {
                     contents: "abc:: def",
                     indent: 2,
+                    header: 0,
                     new_block: false,
                     attr_name: String::from("abc"),
                     attr_values: vec![String::from("def")]
