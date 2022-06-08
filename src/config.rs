@@ -212,7 +212,7 @@ impl Config {
         };
 
         let mut cfg = Config {
-            path: merge_required("path", cmdline_cfg.data, file_cfg.data)?,
+            path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
