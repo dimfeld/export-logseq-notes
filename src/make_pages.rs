@@ -124,7 +124,7 @@ pub fn make_pages<'a, 'b>(
                 // If we're including all pages, continue to exclude pages where the bool include
                 // attribute is false.
 
-                // If we're not include all pages, then check:
+                // If we're not including all pages, then check:
                 // - The page tags to match the include tags
                 // - The page attributes to match the include tags
                 // - The boolean include attribute, if present

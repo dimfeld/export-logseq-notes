@@ -93,7 +93,9 @@ impl Graph {
                 .push(block.id);
         }
 
-        self.blocks_by_uid.insert(block.uid.clone(), block.id);
+        if !block.uid.is_empty() {
+            self.blocks_by_uid.insert(block.uid.clone(), block.id);
+        }
         self.blocks.insert(block.id, block);
     }
 

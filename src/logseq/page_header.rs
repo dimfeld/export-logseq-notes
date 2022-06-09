@@ -14,8 +14,8 @@ enum HeaderParseState {
 
 pub fn parse_page_header(
     lines: &mut LinesIterator<impl BufRead>,
-) -> Result<FxHashMap<String, AttrList>, anyhow::Error> {
-    let mut page_attrs = FxHashMap::default();
+) -> Result<Vec<(String, AttrList)>, anyhow::Error> {
+    let mut page_attrs = Vec::new();
     let first_line = lines.next().transpose()?.unwrap_or_default();
     if first_line.is_empty() {
         return Ok(page_attrs);
@@ -33,7 +33,7 @@ pub fn parse_page_header(
         match parsed {
             Ok(Some((attr_name, attr_values))) => {
                 header_state = HeaderParseState::AttrFrontMatter;
-                page_attrs.insert(attr_name, attr_values);
+                page_attrs.push((attr_name, attr_values));
             }
             _ => {
                 // It wasn't actually an attribute, so exit header parse mode.
@@ -80,7 +80,7 @@ pub fn parse_page_header(
             let parsed = super::attrs::parse_attr_line(separator, line.as_str());
 
             match parsed {
-                Ok(Some((attr_name, attr_values))) => page_attrs.insert(attr_name, attr_values),
+                Ok(Some((attr_name, attr_values))) => page_attrs.push((attr_name, attr_values)),
                 _ => break line,
             };
         }
@@ -96,9 +96,8 @@ pub fn parse_page_header(
 #[cfg(test)]
 mod test {
 
-    use std::{io::BufRead, iter::FromIterator};
+    use std::io::BufRead;
 
-    use fxhash::FxHashMap;
     use indoc::indoc;
     use itertools::put_back;
     use smallvec::smallvec;
@@ -107,7 +106,7 @@ mod test {
 
     use super::parse_page_header;
 
-    fn run_test(input: &str) -> Result<(String, FxHashMap<String, AttrList>), anyhow::Error> {
+    fn run_test(input: &str) -> Result<(String, Vec<(String, AttrList)>), anyhow::Error> {
         let mut reader = put_back(std::io::BufReader::new(input.as_bytes()).lines());
         let attrs = parse_page_header(&mut reader)?;
 
@@ -123,10 +122,7 @@ mod test {
 
         assert_eq!(
             run_test(input).unwrap(),
-            (
-                String::from("- the first block"),
-                FxHashMap::<String, AttrList>::default()
-            )
+            (String::from("- the first block"), Vec::new())
         );
     }
 
@@ -144,10 +140,7 @@ mod test {
 
         assert_eq!(
             run_test(input).unwrap(),
-            (
-                String::from("- the first block"),
-                FxHashMap::<String, AttrList>::default()
-            )
+            (String::from("- the first block"), Vec::new())
         );
     }
 
@@ -168,7 +161,7 @@ mod test {
             run_test(input).unwrap(),
             (
                 String::from("- some text"),
-                FxHashMap::<String, AttrList>::from_iter([
+                vec![
                     (
                         String::from("title"),
                         smallvec![String::from("It's a title")]
@@ -177,7 +170,7 @@ mod test {
                         String::from("tags"),
                         smallvec![String::from("a"), String::from("b"), String::from("c")]
                     )
-                ])
+                ]
             )
         );
     }
@@ -197,7 +190,7 @@ mod test {
             run_test(input).unwrap(),
             (
                 String::from("- some text"),
-                FxHashMap::<String, AttrList>::from_iter([
+                vec![
                     (
                         String::from("title"),
                         smallvec![String::from("It's a title")]
@@ -206,7 +199,7 @@ mod test {
                         String::from("tags"),
                         smallvec![String::from("a"), String::from("b"), String::from("c")]
                     )
-                ])
+                ]
             )
         );
     }

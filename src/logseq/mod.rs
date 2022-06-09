@@ -14,7 +14,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use edn_rs::Edn;
 use fxhash::FxHashMap;
-use itertools::{put_back, PutBack};
+use itertools::{put_back, Itertools, PutBack};
 use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
@@ -249,8 +249,34 @@ fn parse_logseq_file(
     filename: &Path,
     lines: &mut LinesIterator<impl BufRead>,
 ) -> Result<LogseqRawPage, anyhow::Error> {
-    let mut page_attrs = page_header::parse_page_header(lines)?;
-    let blocks = blocks::parse_raw_blocks(lines)?;
+    let page_attrs_list = page_header::parse_page_header(lines)?;
+
+    // Create a block containing the page header attributes so that it will show up in the output
+    let attrs_block_contents = page_attrs_list
+        .iter()
+        .filter(|(attr_name, _)| !matches!(attr_name.as_str(), "id" | "title"))
+        .map(|(attr_name, attr_values)| {
+            let values = attr_values.join(", ");
+            format!("{attr_name}:: {values}")
+        })
+        .collect::<Vec<_>>();
+
+    let mut blocks = Vec::new();
+
+    for string in attrs_block_contents {
+        let attrs_block = LogseqRawBlock {
+            contents: string,
+            ..Default::default()
+        };
+        blocks.push(attrs_block);
+    }
+
+    blocks::parse_raw_blocks(&mut blocks, lines)?;
+
+    let mut page_attrs = page_attrs_list
+        .into_iter()
+        .map(|(attr_name, values)| (attr_name.to_lowercase(), values))
+        .collect::<FxHashMap<_, _>>();
 
     if !page_attrs.contains_key("title") {
         let title = filename

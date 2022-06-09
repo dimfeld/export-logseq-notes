@@ -567,6 +567,11 @@ impl<'a, 'b> Page<'a, 'b> {
         let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
         let render_children = render_children && !block.children.is_empty();
 
+        // println!(
+        //     "Block {} renderchildren: {}, children {:?}, content {}",
+        //     block.id, render_children, block.children, block.string
+        // );
+
         if rendered.is_blank() && !render_children {
             return Ok(StringBuilder::Empty);
         }
@@ -585,11 +590,6 @@ impl<'a, 'b> Page<'a, 'b> {
         }
 
         result.push(rendered);
-
-        // println!(
-        //   "Block {} renderchildren: {}, children {:?}",
-        //   block_id, render_children, block.children
-        // );
 
         if render_children {
             result.push("\n");

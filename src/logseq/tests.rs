@@ -12,7 +12,7 @@ use crate::logseq::blocks::LogseqRawBlock;
 #[test]
 fn full_page() {
     let source = r##"title:: Circa
-tags:: Project
+Tags:: Project
 
 - # Some tools
 - Based on
@@ -37,6 +37,10 @@ tags:: Project
 
     let expected_blocks = vec![
         LogseqRawBlock {
+            contents: String::from("Tags:: Project"),
+            ..LogseqRawBlock::default()
+        },
+        LogseqRawBlock {
             header_level: 1,
             contents: String::from("Some tools"),
             ..LogseqRawBlock::default()
@@ -49,13 +53,13 @@ tags:: Project
         LogseqRawBlock {
             contents: String::from("a book"),
             indent: 1,
-            parent_idx: Some(1),
+            parent_idx: Some(2),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             contents: String::from("another book"),
             indent: 1,
-            parent_idx: Some(1),
+            parent_idx: Some(2),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
@@ -66,34 +70,34 @@ tags:: Project
         LogseqRawBlock {
             contents: String::from("A mostly-DAG"),
             indent: 1,
-            parent_idx: Some(4),
+            parent_idx: Some(5),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             contents: String::from("because of some exceptions"),
             id: String::from("93804e07-d826-44bc-94f4-18b07b0052b6"),
             indent: 1,
-            parent_idx: Some(4),
+            parent_idx: Some(5),
             view_type: ViewType::Numbered,
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             contents: String::from("Exception 1"),
             indent: 2,
-            parent_idx: Some(6),
+            parent_idx: Some(7),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             contents: String::from("maybe not"),
             indent: 3,
-            parent_idx: Some(7),
+            parent_idx: Some(8),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             id: String::from("b4eb8b3b-9d09-4358-8e05-0d29e4301ecb"),
             contents: String::from("Exception 2"),
             indent: 2,
-            parent_idx: Some(6),
+            parent_idx: Some(7),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {

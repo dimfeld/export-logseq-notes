@@ -36,10 +36,9 @@ pub struct LogseqRawBlock {
 }
 
 pub fn parse_raw_blocks(
+    blocks: &mut Vec<LogseqRawBlock>,
     lines: &mut LinesIterator<impl BufRead>,
-) -> Result<Vec<LogseqRawBlock>, anyhow::Error> {
-    let mut blocks = Vec::<LogseqRawBlock>::new();
-
+) -> Result<(), anyhow::Error> {
     let mut current_indent = 0;
     let mut current_parent: Option<usize> = None;
     loop {
@@ -68,7 +67,7 @@ pub fn parse_raw_blocks(
         }
     }
 
-    Ok(blocks)
+    Ok(())
 }
 
 enum RawBlockOutput {
