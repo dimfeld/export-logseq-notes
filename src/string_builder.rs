@@ -90,6 +90,12 @@ impl<'a, T: Into<StringBuilder<'a>>> From<Vec<T>> for StringBuilder<'a> {
     }
 }
 
+impl<'a, ITEM: Into<StringBuilder<'a>>> FromIterator<ITEM> for StringBuilder<'a> {
+    fn from_iter<T: IntoIterator<Item = ITEM>>(iter: T) -> Self {
+        StringBuilder::Vec(iter.into_iter().map(|e| e.into()).collect::<Vec<_>>())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

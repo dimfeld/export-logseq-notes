@@ -194,14 +194,12 @@ pub fn make_pages<'a, 'b>(
                 title: title.clone(),
                 slug,
                 graph,
-                base_url: &config.base_url,
-                filter_link_only_blocks: config.filter_link_only_blocks,
+                config,
                 filter_tags: &filter_tags,
                 pages_by_title: &pages_by_title,
                 included_pages_by_title: &included_pages_by_title,
                 included_pages_by_id: &included_pages_by_id,
                 omitted_attributes: &omitted_attributes,
-                embed_unincluded_pages: config.include_all_page_embeds,
                 highlighter,
             };
 

@@ -85,6 +85,26 @@ filter_link_only_blocks = true
 # When rendering links, use this URL prefix (optional)
 base_url = "/notes"
 
+# Include page embeds of pages that don't otherwise qualify for inclusion.
+include_all_page_embeds = false
+
+# HTML classes for various elements
+class_bold = "rm-bold"
+class_italic = "rm-italic"
+class_strikethrough = "strike"
+class_highlight = "highlighted"
+class_blockquote = "bq"
+class_hr = ""
+class_block_embed = "block-embed"
+class_page_embed_container = "border border-gray-300"
+class_page_embed_title = "font-bold text-lg"
+class_page_embed_content = ""
+class_attr_name = "font-medium text-gray-800"
+class_attr_value = ""
+class_heading1 = "text-2xl"
+class_heading2 = "text-xl"
+class_heading3 = "text-lg"
+class_heading4 = "font-medium"
 
 ##### Upcoming features #####
 
@@ -95,5 +115,3 @@ base_url = "/notes"
 # written to books_notes_a_book.
 namespace_dirs = false
 
-# Include page embeds of pages that don't otherwise qualify for inclusion.
-include_all_page_embeds = false
