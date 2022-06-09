@@ -15,7 +15,7 @@ pub fn parse_attr_line(
         .filter(|(attr_name, _)| !attr_name.chars().any(|c| c.is_whitespace()))
         .map(|(attr_name, attr_value_str)| {
             let attr_value_str = attr_value_str.trim();
-            let values = if attr_name == "tags" {
+            let values = if attr_name.to_lowercase() == "tags" {
                 parse_tag_values(attr_value_str)?
             } else {
                 smallvec![attr_value_str.to_string()]

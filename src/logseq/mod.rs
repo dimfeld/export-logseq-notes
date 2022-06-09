@@ -163,7 +163,7 @@ impl LogseqGraph {
             .remove("id")
             .map(|mut values| values.remove(0))
             .unwrap_or_default(); // TODO probably want to generate a uuid
-        let tags = page.attrs.remove("tags").unwrap_or_default();
+        let tags = page.attrs.get("tags").cloned().unwrap_or_default();
         let view_type = page
             .attrs
             .get("view-mode")
