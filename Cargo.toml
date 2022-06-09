@@ -1,5 +1,5 @@
 [package]
-name = "export-roam-notes"
+name = "export-logseq-notes"
 version = "0.2.3"
 authors = ["Daniel Imfeld <daniel@imfeld.dev>"]
 edition = "2021"

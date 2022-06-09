@@ -10,7 +10,7 @@ struct InputConfig {
     #[structopt(
         short,
         long,
-        help = "Load the configuration from this path. Defaults to export-roam-notes.toml"
+        help = "Load the configuration from this path. Defaults to export-logseq-notes.toml"
     )]
     pub config: Option<PathBuf>,
 
@@ -240,7 +240,7 @@ impl Config {
         let cmdline_cfg = InputConfig::from_args();
         let config_file_path = cmdline_cfg.config.as_ref();
         let config_file = std::fs::File::open(
-            config_file_path.unwrap_or(&PathBuf::from("export-roam-notes.toml")),
+            config_file_path.unwrap_or(&PathBuf::from("export-logseq-notes.toml")),
         );
 
         let file_cfg = match (config_file, &cmdline_cfg.config) {
