@@ -132,7 +132,7 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            println!("Including block {block:?}");
+            // println!("Including block {block:?}");
 
             Some(block.containing_page)
         })
@@ -154,7 +154,7 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            println!("Including {title}");
+            // println!("Including {title}");
 
             let slug = pages_by_title.get(title).unwrap();
             Some((title.clone(), slug))

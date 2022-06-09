@@ -73,7 +73,9 @@ impl LogseqGraph {
 
         lsgraph.read_page_metadata()?;
         lsgraph.read_page_directory("pages", false)?;
-        lsgraph.read_page_directory("journals", true)?;
+        if read_journals {
+            lsgraph.read_page_directory("journals", true)?;
+        }
 
         Ok(lsgraph.graph)
     }

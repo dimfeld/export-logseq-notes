@@ -524,7 +524,11 @@ impl<'a, 'b> Page<'a, 'b> {
         result.push(write_depth(depth));
 
         if render_li {
-            result.push(format!(r##"<li id="{id}">"##, id = block.uid));
+            if block.uid.is_empty() {
+                result.push(r##"<li>"##);
+            } else {
+                result.push(format!(r##"<li id="{id}">"##, id = block.uid));
+            }
         }
 
         result.push(rendered);
