@@ -6,27 +6,32 @@ use std::convert::TryFrom;
 use std::mem;
 use std::str::FromStr;
 
+use crate::{
+    graph::{Block, Graph, ViewType},
+    parse_string::ContentStyle,
+};
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ViewType {
+pub enum RoamViewType {
     Bullet,
     Numbered,
     Document,
 }
 
-impl Default for ViewType {
-    fn default() -> ViewType {
-        ViewType::Bullet
+impl Default for RoamViewType {
+    fn default() -> RoamViewType {
+        RoamViewType::Bullet
     }
 }
 
-impl TryFrom<&str> for ViewType {
+impl TryFrom<&str> for RoamViewType {
     type Error = EdnError;
 
-    fn try_from(val: &str) -> Result<ViewType, EdnError> {
+    fn try_from(val: &str) -> Result<RoamViewType, EdnError> {
         match val {
-            ":bullet" => Ok(ViewType::Bullet),
-            ":numbered" => Ok(ViewType::Numbered),
-            ":document" => Ok(ViewType::Document),
+            ":bullet" => Ok(RoamViewType::Bullet),
+            ":numbered" => Ok(RoamViewType::Numbered),
+            ":document" => Ok(RoamViewType::Document),
             _ => Err(EdnError::ParseEdn(format!(
                 "Unknown :children/view-type value {}",
                 val
@@ -36,15 +41,15 @@ impl TryFrom<&str> for ViewType {
 }
 
 #[derive(Debug, Default)]
-pub struct Block {
+struct RoamBlock {
     pub id: usize,
     pub title: Option<String>,
     pub string: String,
     pub uid: String,
     pub heading: usize,
-    pub view_type: ViewType,
+    pub view_type: RoamViewType,
     pub parents: SmallVec<[usize; 1]>,
-    pub children: SmallVec<[usize; 8]>,
+    pub children: SmallVec<[usize; 2]>,
     pub open: bool,
     pub page: usize,
     pub order: usize,
@@ -65,11 +70,13 @@ pub struct Block {
 #[derive(Debug)]
 pub enum AttrValue {
     Nil,
+    /// A reference to another page
     Uid(String),
+    /// Just a plain string
     Str(String),
 }
 
-pub struct EntityAttr {
+struct EntityAttr {
     pub uid: String,
     pub value: AttrValue,
 }
@@ -177,14 +184,13 @@ impl TryFrom<Edn> for EntityAttr {
     }
 }
 
-pub struct Graph {
-    pub blocks: BTreeMap<usize, Block>,
-    pub titles: FxHashMap<String, usize>,
-    pub blocks_by_uid: FxHashMap<String, usize>,
+struct RoamGraph {
+    pub blocks: BTreeMap<usize, RoamBlock>,
+    pub blocks_by_uid: BTreeMap<String, usize>,
     pub emails: Vec<String>,
 }
 
-impl Graph {
+impl RoamGraph {
     fn get_email_index(&mut self, email: String) -> usize {
         let index = self.emails.iter().position(|s| s == &email);
         match index {
@@ -196,11 +202,7 @@ impl Graph {
         }
     }
 
-    fn add_block(&mut self, block: Block) {
-        if let Some(title) = &block.title {
-            self.titles.insert(title.clone(), block.id);
-        }
-
+    fn add_block(&mut self, block: RoamBlock) {
         self.blocks_by_uid.insert(block.uid.clone(), block.id);
         self.blocks.insert(block.id, block);
     }
@@ -236,11 +238,10 @@ impl Graph {
         }
     }
 
-    pub fn from_edn(mut s: &str) -> Result<Graph, EdnError> {
-        let mut graph = Graph {
+    pub fn from_edn(mut s: &str) -> Result<RoamGraph, EdnError> {
+        let mut graph = RoamGraph {
             blocks: BTreeMap::new(),
-            titles: FxHashMap::default(),
-            blocks_by_uid: FxHashMap::default(),
+            blocks_by_uid: BTreeMap::new(),
             emails: Vec::<String>::new(),
         };
 
@@ -262,7 +263,7 @@ impl Graph {
             _ => return Err(EdnError::ParseEdn(String::from(":datoms was not a vector"))),
         };
 
-        let mut current_block: Block = Default::default();
+        let mut current_block: RoamBlock = Default::default();
 
         for datom_edn in datoms {
             let mut datom = match datom_edn {
@@ -307,7 +308,7 @@ impl Graph {
                 (":block/uid", Edn::Str(v)) => current_block.uid = v,
                 (":block/heading", value) => current_block.heading = value.to_uint().unwrap(),
                 (":children/view-type", Edn::Key(v)) => {
-                    current_block.view_type = ViewType::try_from(v.as_str())?
+                    current_block.view_type = RoamViewType::try_from(v.as_str())?
                 }
                 (":block/children", value) => current_block.children.push(value.to_uint().unwrap()),
                 (":block/parents", value) => current_block.parents.push(value.to_uint().unwrap()),
@@ -368,28 +369,68 @@ impl Graph {
 
         Ok(graph)
     }
+}
 
-    fn block_iter<'a, F: FnMut(&(&usize, &Block)) -> bool>(
-        &'a self,
-        filter: F,
-    ) -> impl Iterator<Item = &'a Block> {
-        self.blocks.iter().filter(filter).map(|(_, n)| n)
+pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
+    let roam_graph = RoamGraph::from_edn(path)?;
+    let mut graph = Graph::new(ContentStyle::Roam, true);
+
+    for roam_block in roam_graph.blocks.values() {
+        let tags = roam_block
+            .refs
+            .iter()
+            .filter_map(|attr| roam_graph.blocks.get(attr))
+            .filter_map(|block| block.title.clone())
+            .collect::<_>();
+
+        let attrs = roam_block
+            .referenced_attrs
+            .iter()
+            .map(|(tag, values)| {
+                let values = values
+                    .into_iter()
+                    .filter_map(|value| match value {
+                        AttrValue::Nil => None,
+                        AttrValue::Str(s) => Some(s.clone()),
+                        AttrValue::Uid(u) => roam_graph
+                            .blocks_by_uid
+                            .get(u.as_str())
+                            .and_then(|id| roam_graph.blocks.get(id))
+                            .and_then(|block| block.title.clone()),
+                    })
+                    .collect::<SmallVec<[String; 1]>>();
+
+                (tag.clone(), values)
+            })
+            .collect::<_>();
+
+        let view_type = match roam_block.view_type {
+            RoamViewType::Bullet => ViewType::Bullet,
+            RoamViewType::Numbered => ViewType::Numbered,
+            RoamViewType::Document => ViewType::Document,
+        };
+
+        let block = Block {
+            id: roam_block.id,
+            uid: roam_block.uid.clone(),
+            containing_page: roam_block.page,
+            page_title: roam_block.title.clone(),
+            tags,
+            attrs,
+            create_time: roam_block.create_time,
+            edit_time: roam_block.edit_time,
+            is_journal: roam_block.log_id > 0,
+
+            order: roam_block.order,
+            parent: roam_block.parents.get(0).copied(),
+            children: roam_block.children.clone(),
+            string: roam_block.string.clone(),
+            heading: roam_block.heading,
+            view_type,
+        };
+
+        graph.add_block(block);
     }
 
-    pub fn pages<'a>(&'a self) -> impl Iterator<Item = &'a Block> {
-        self.block_iter(|(_, n)| n.title.is_some())
-    }
-
-    pub fn blocks_with_references<'a>(
-        &'a self,
-        references: &'a [usize],
-    ) -> impl Iterator<Item = &'a Block> {
-        self.block_iter(move |(_, n)| n.refs.iter().any(move |r| references.contains(r)))
-    }
-
-    pub fn block_from_uid(&self, uid: &str) -> Option<&Block> {
-        self.blocks_by_uid
-            .get(uid)
-            .and_then(|id| self.blocks.get(id))
-    }
+    Ok(graph)
 }

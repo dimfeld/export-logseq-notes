@@ -2,13 +2,19 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_until, take_while1},
     character::complete::{char, multispace0},
-    character::{is_newline, is_space},
-    combinator::{all_consuming, map, map_parser, opt, recognize},
+    character::{complete::multispace1, is_newline},
+    combinator::{all_consuming, cond, map, map_opt, map_parser, opt},
     error::context,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
     IResult,
 };
 use urlocator::{UrlLocation, UrlLocator};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentStyle {
+    Roam,
+    Logseq,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expression<'a> {
@@ -48,19 +54,24 @@ pub enum Expression<'a> {
 }
 
 fn nonws_char(c: char) -> bool {
-    !is_space(c as u8) && !is_newline(c as u8)
+    !c.is_whitespace() && !is_newline(c as u8)
 }
 
 fn word(input: &str) -> IResult<&str, &str> {
-    take_while1(nonws_char)(input)
+    take_while1(|c| nonws_char(c) && c != ',')(input)
 }
 
 fn fenced<'a>(start: &'a str, end: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
     map(tuple((tag(start), take_until(end), tag(end))), |x| x.1)
 }
 
-fn style<'a>(boundary: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<Expression<'a>>> {
-    map_parser(fenced(boundary, boundary), parse_inline)
+fn style<'a>(
+    content_style: ContentStyle,
+    boundary: &'a str,
+) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<Expression<'a>>> {
+    map_parser(fenced(boundary, boundary), move |i| {
+        parse_inline(content_style, i)
+    })
 }
 
 fn link(input: &str) -> IResult<&str, &str> {
@@ -74,7 +85,7 @@ fn markdown_link(input: &str) -> IResult<&str, (&str, &str)> {
     )(input)
 }
 
-fn link_or_word(input: &str) -> IResult<&str, &str> {
+pub fn link_or_word(input: &str) -> IResult<&str, &str> {
     alt((link, word))(input)
 }
 
@@ -82,7 +93,7 @@ fn fixed_link_or_word<'a>(word: &'a str) -> impl FnMut(&'a str) -> IResult<&'a s
     alt((tag(word), delimited(tag("[["), tag(word), tag("]]"))))
 }
 
-fn hashtag(input: &str) -> IResult<&str, (&str, bool)> {
+pub fn hashtag(input: &str) -> IResult<&str, (&str, bool)> {
     map(
         preceded(char('#'), pair(opt(tag(".")), link_or_word)),
         |(has_dot, tag)| (tag, has_dot.is_some()),
@@ -102,39 +113,68 @@ fn block_ref(input: &str) -> IResult<&str, &str> {
     fenced("((", "))")(input)
 }
 
-fn bold(input: &str) -> IResult<&str, Vec<Expression>> {
-    style("**")(input)
+fn roam_bold(content_style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+    style(content_style, "**")(input)
 }
 
-fn italic(input: &str) -> IResult<&str, Vec<Expression>> {
-    style("__")(input)
+fn logseq_bold(content_style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+    alt((style(content_style, "**"), style(content_style, "__")))(input)
 }
 
-fn strike(input: &str) -> IResult<&str, Vec<Expression>> {
-    style("~~")(input)
+fn roam_italic(content_style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+    style(content_style, "__")(input)
 }
 
-fn highlight(input: &str) -> IResult<&str, Vec<Expression>> {
-    style("^^")(input)
+fn logseq_italic(content_style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+    alt((style(content_style, "_"), style(content_style, "*")))(input)
+}
+
+fn strike(content_style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+    style(content_style, "~~")(input)
+}
+
+fn highlight(content_style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+    style(content_style, "^^")(input)
 }
 
 fn latex(input: &str) -> IResult<&str, &str> {
     fenced("$$", "$$")(input)
 }
 
-fn brace_directive_contents(input: &str) -> IResult<&str, Expression> {
+fn brace_directive_contents(content_style: ContentStyle, input: &str) -> IResult<&str, Expression> {
     alt((
+        map_opt(
+            cond(
+                content_style == ContentStyle::Roam,
+                alt((
+                    map(fixed_link_or_word("TODO"), |_| Expression::Todo {
+                        done: false,
+                    }),
+                    map(fixed_link_or_word("DONE"), |_| Expression::Todo {
+                        done: true,
+                    }),
+                )),
+            ),
+            |r| r,
+        ),
         map(fixed_link_or_word("table"), |_| Expression::Table),
-        map(fixed_link_or_word("TODO"), |_| Expression::Todo {
-            done: false,
-        }),
-        map(fixed_link_or_word("DONE"), |_| Expression::Todo {
-            done: true,
-        }),
         map(
             separated_pair(
                 fixed_link_or_word("embed"),
-                terminated(tag(":"), multispace0),
+                // Roam has a colon after "embed", Logseq does not.
+                alt((
+                    map_opt(
+                        cond(
+                            content_style == ContentStyle::Roam,
+                            terminated(tag(":"), multispace0),
+                        ),
+                        |r| r,
+                    ),
+                    map_opt(
+                        cond(content_style == ContentStyle::Logseq, multispace1),
+                        |r| r,
+                    ),
+                )),
                 alt((
                     map(block_ref, Expression::BlockEmbed),
                     map(link, Expression::PageEmbed),
@@ -147,14 +187,14 @@ fn brace_directive_contents(input: &str) -> IResult<&str, Expression> {
 }
 
 /// Parse directives like `{{table}}` and `{{[[table]]}}`
-fn brace_directive(input: &str) -> IResult<&str, Expression> {
+fn brace_directive(content_style: ContentStyle, input: &str) -> IResult<&str, Expression> {
     map(
         tuple((
             tag("{{"),
             map(take_until("}}"), |inner: &str| {
                 // Try to parse a link from the brace contents. If these fail, just return the raw token.
                 let inner = inner.trim();
-                all_consuming(brace_directive_contents)(inner)
+                all_consuming(|i| brace_directive_contents(content_style, i))(inner)
                     .map(|x| x.1)
                     .unwrap_or_else(|_| Expression::BraceDirective(inner))
             }),
@@ -193,11 +233,11 @@ fn raw_url(input: &str) -> IResult<&str, &str> {
     }
 }
 
-fn directive(input: &str) -> IResult<&str, Expression> {
+fn directive(content_style: ContentStyle, input: &str) -> IResult<&str, Expression> {
     alt((
         map(triple_backtick, Expression::TripleBacktick),
         map(single_backtick, Expression::SingleBacktick),
-        brace_directive,
+        |i| brace_directive(content_style, i),
         map(hashtag, |(v, dot)| Expression::Hashtag(v, dot)),
         map(link, Expression::Link),
         map(block_ref, Expression::BlockRef),
@@ -206,17 +246,41 @@ fn directive(input: &str) -> IResult<&str, Expression> {
             title,
             url,
         }),
-        map(context("bold", bold), Expression::Bold),
-        map(italic, Expression::Italic),
-        map(strike, Expression::Strike),
-        map(highlight, Expression::Highlight),
+        map_opt(
+            cond(
+                content_style == ContentStyle::Roam,
+                alt((
+                    map(
+                        context("bold", |i| roam_bold(content_style, i)),
+                        Expression::Bold,
+                    ),
+                    map(|i| roam_italic(content_style, i), Expression::Italic),
+                )),
+            ),
+            |r| r,
+        ),
+        map_opt(
+            cond(
+                content_style == ContentStyle::Logseq,
+                alt((
+                    map(
+                        context("bold", |i| logseq_bold(content_style, i)),
+                        Expression::Bold,
+                    ),
+                    map(|i| logseq_italic(content_style, i), Expression::Italic),
+                )),
+            ),
+            |r| r,
+        ),
+        map(|i| strike(content_style, i), Expression::Strike),
+        map(|i| highlight(content_style, i), Expression::Highlight),
         map(latex, Expression::Latex),
         map(raw_url, Expression::RawHyperlink),
     ))(input)
 }
 
 /// Parse a line of text, counting anything that doesn't match a directive as plain text.
-fn parse_inline(input: &str) -> IResult<&str, Vec<Expression>> {
+fn parse_inline(style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
     let mut output = Vec::with_capacity(4);
 
     let mut current_input = input;
@@ -225,7 +289,7 @@ fn parse_inline(input: &str) -> IResult<&str, Vec<Expression>> {
         let mut found_directive = false;
         for (current_index, _) in current_input.char_indices() {
             // println!("{} {}", current_index, current_input);
-            match directive(&current_input[current_index..]) {
+            match directive(style, &current_input[current_index..]) {
                 Ok((remaining, parsed)) => {
                     // println!("Matched {:?} remaining {}", parsed, remaining);
                     let leading_text = &current_input[0..current_index];
@@ -259,21 +323,53 @@ fn parse_inline(input: &str) -> IResult<&str, Vec<Expression>> {
 }
 
 /// Parses `Name:: Arbitrary [[text]]`
-fn attribute(input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
+pub fn attribute(style: ContentStyle, input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
     // Roam doesn't trim whitespace on the attribute name, so we don't either.
-    separated_pair(is_not(":`"), tag("::"), preceded(multispace0, parse_inline))(input)
+    separated_pair(
+        is_not(":`"),
+        tag("::"),
+        preceded(multispace0, |i| parse_inline(style, i)),
+    )(input)
 }
 
-pub fn parse(input: &str) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
+fn logseq_todo(input: &str) -> IResult<&str, Expression> {
+    alt((
+        map(tag("TODO"), |_| Expression::Todo { done: false }),
+        map(tag("DOING"), |_| Expression::Todo { done: false }),
+        map(tag("NOW"), |_| Expression::Todo { done: false }),
+        map(tag("LATER"), |_| Expression::Todo { done: false }),
+        map(tag("DONE"), |_| Expression::Todo { done: true }),
+    ))(input)
+}
+
+pub fn parse(
+    content_style: ContentStyle,
+    input: &str,
+) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
     alt((
         map(all_consuming(tag("---")), |_| vec![Expression::HRule]),
-        map(all_consuming(preceded(tag("> "), parse_inline)), |values| {
-            vec![Expression::BlockQuote(values)]
-        }),
-        map(all_consuming(attribute), |(name, value)| {
-            vec![Expression::Attribute { name, value }]
-        }),
-        all_consuming(parse_inline),
+        map(
+            all_consuming(preceded(tag("> "), |i| parse_inline(content_style, i))),
+            |values| vec![Expression::BlockQuote(values)],
+        ),
+        map(
+            all_consuming(|i| attribute(content_style, i)),
+            |(name, value)| vec![Expression::Attribute { name, value }],
+        ),
+        map_opt(
+            cond(
+                content_style == ContentStyle::Logseq,
+                all_consuming(map(
+                    pair(logseq_todo, |i| parse_inline(content_style, i)),
+                    |(todo_expr, mut exprs)| {
+                        exprs.insert(0, todo_expr);
+                        exprs
+                    },
+                )),
+            ),
+            |r| r,
+        ),
+        all_consuming(|input| parse_inline(content_style, input)),
     ))(input)
     .map(|(_, results)| results)
 }

@@ -7,6 +7,7 @@
   <article>
     <header>
       <h1>{{title}}</h1>
+      {{#if created_time}}
       <div>
         Written
         <time>{{format_time "%Y-%m-%d" created_time}}</time>
@@ -14,6 +15,7 @@
         Updated
         <time>{{format_time "%Y-%m-%d" edited_time}}</time>
       </div>
+      {{/if}}
     </header>
 
     {{{body}}}

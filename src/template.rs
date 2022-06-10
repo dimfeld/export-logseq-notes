@@ -21,14 +21,14 @@ handlebars_helper!(format_time: |fmt:str, t: i64| { chrono::Utc.timestamp(t / 10
 handlebars_helper!(replace: |content:str, pattern: str, replacement:str | content.replace(pattern, replacement) );
 
 pub fn create(path: &Path) -> Result<Handlebars> {
-    let mut template_file = match File::open(path) {
+    let mut template_file = match File::open(path).with_context(|| format!("{path:?}")) {
         Ok(f) => f,
         Err(e) => {
             if path.is_absolute() {
-                return Err(e.into());
+                return Err(e);
             }
 
-            // Try opening the file under `template/{path}`. If that fails, return the
+            // Try opening the file under `templates/{path}`. If that fails, return the
             // original error.
             let template_dir_path = Path::new("templates").join(path);
             File::open(template_dir_path)

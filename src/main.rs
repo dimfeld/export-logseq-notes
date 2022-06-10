@@ -1,9 +1,12 @@
 mod config;
+mod graph;
 mod html;
 mod links;
+mod logseq;
 mod make_pages;
 mod page;
 mod parse_string;
+#[cfg(test)]
 mod parse_string_tests;
 mod roam_edn;
 mod string_builder;
@@ -15,22 +18,11 @@ use std::fs::File;
 use std::io::Read;
 use zip::read::ZipArchive;
 
-use make_pages::make_pages;
+use crate::config::PkmProduct;
+use crate::make_pages::make_pages;
 
 fn main() -> Result<()> {
     let config = Config::load()?;
-
-    let mut f =
-        File::open(&config.file).with_context(|| format!("Opening {}", config.file.display()))?;
-    let mut raw_data = String::new();
-    if config.file.extension().map(|e| e == "zip").unwrap_or(false) {
-        let mut zip_reader = ZipArchive::new(f)?;
-        let mut file = zip_reader.by_index(0)?;
-        file.read_to_string(&mut raw_data)?;
-    } else {
-        f.read_to_string(&mut raw_data)?;
-        drop(f);
-    }
 
     let hbars = template::create(&config.template)?;
 
@@ -42,7 +34,26 @@ fn main() -> Result<()> {
 
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
-    let graph = roam_edn::Graph::from_edn(&raw_data)?;
+    let graph = match config.product {
+        PkmProduct::Roam => {
+            let mut f = File::open(&config.path)
+                .with_context(|| format!("Opening {}", config.path.display()))?;
+            let mut raw_data = String::new();
+            if config.path.extension().map(|e| e == "zip").unwrap_or(false) {
+                let mut zip_reader = ZipArchive::new(f)?;
+                let mut file = zip_reader.by_index(0)?;
+                file.read_to_string(&mut raw_data)?;
+            } else {
+                f.read_to_string(&mut raw_data)?;
+                drop(f);
+            }
+            roam_edn::graph_from_roam_edn(&raw_data)?
+        }
+        PkmProduct::Logseq => {
+            logseq::LogseqGraph::build(config.path.clone(), config.allow_daily_notes)?
+        }
+    };
+
     let pages = make_pages(&graph, &hbars, &highlighter, &config)?;
 
     println!("Wrote {page_count} pages", page_count = pages.len());

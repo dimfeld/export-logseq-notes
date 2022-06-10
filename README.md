@@ -1,6 +1,6 @@
-# Roam Note Exporter
+# Logseq Note Exporter
 
-This is a program to take a Roam Research EDN export and convert it into web pages. I'm currently using this to
+This is a program to take a Logseq directory and convert it into web pages. I'm currently using this to
 populate the [notes section of my website](https://imfeld.dev/notes).
 
 ## Features
@@ -14,12 +14,15 @@ populate the [notes section of my website](https://imfeld.dev/notes).
   - This is configurable to use either a specific "Tags" attribute, or hashtags anywhere in a page.
   - Tags can be excluded
 
+This program also supports operating on a Roam Research EDN export, though I'm not maintaining that support so the
+parsing may stop working if the Roam EDN format changes enough.
+
 ## Configuration
 
-Primary configuration is through a TOML file. You can find an [annotated config file here](https://github.com/dimfeld/export-roam-notes/blob/master/export-roam-notes.toml) and
+Primary configuration is through a TOML file. You can find an [annotated config file here](https://github.com/dimfeld/export-logseq-notes/blob/master/export-roam-notes.toml) and
 modify it for your needs.
 
-The program also supports command line arguments to override settings in the config file. `export-roam-notes --help` will show
+The program also supports command line arguments to override settings in the config file. `export-logseq-notes --help` will show
 the arguments available.
 
 ## Notable features planned
@@ -30,11 +33,9 @@ the arguments available.
 - [X] Link block references to original block
 - [ ] Translate namespaces into nested directories
 - [ ] Option to show backlinks at bottom
-- [ ] Autodownload a Roam EDN export file. I might just make it work with roam-to-git for this.
-
 
 ## Acknowledgements
 
-- [edn-rs](https://github.com/naomijub/edn-rs) for the core EDN parsing
+- [edn-rs](https://github.com/naomijub/edn-rs) for EDN parsing
 - [nom](https://github.com/Geal/nom) for making it easy to write custom parsers
 - The Svelte syntax file is imported from `https://github.com/corneliusio/svelte-sublime`.
