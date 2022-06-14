@@ -7,6 +7,8 @@ use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Serialize;
+use smallvec::SmallVec;
+use std::borrow::Cow;
 use std::io::Write;
 
 #[derive(Serialize, Debug)]
@@ -193,6 +195,7 @@ pub fn make_pages<'a, 'b>(
                 id: *id,
                 title: title.clone(),
                 slug,
+                latest_found_edit_time: std::cell::Cell::new(0),
                 graph,
                 config,
                 filter_tags: &filter_tags,
@@ -226,14 +229,36 @@ pub fn make_pages<'a, 'b>(
                 .filter(|&s| !filter_tags.contains(&s) && exclude_tag_names.get(s).is_none())
                 .collect::<Vec<_>>();
 
+            let lower_tags = tags
+                .iter()
+                .map(|t| t.to_lowercase())
+                .collect::<FxHashSet<_>>();
+
             // println!("{:?} {:?}", title, tags);
 
+            let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
+
+            let mut popped = false;
+            let mut title_components = title.split('/').collect::<SmallVec<[&str; 3]>>();
+            while title_components.len() > 1
+                && lower_tags.contains(&title_components[0].to_lowercase())
+            {
+                popped = true;
+                title_components.remove(0);
+            }
+
+            let final_title = if popped {
+                Cow::from(title_components.iter().join("/"))
+            } else {
+                Cow::from(title)
+            };
+
             let template_data = TemplateArgs {
-                title,
+                title: final_title.as_ref(),
                 body: &rendered,
                 tags,
                 created_time: block.create_time,
-                edited_time: block.edit_time,
+                edited_time,
             };
             let full_page = handlebars.render("page", &template_data)?;
 

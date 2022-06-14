@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crate::config::Config;
 use crate::graph::{Block, Graph, ViewType};
 use crate::html;
@@ -31,6 +33,8 @@ pub struct Page<'a, 'b> {
     pub id: usize,
     pub title: String,
     pub slug: &'a str,
+
+    pub latest_found_edit_time: Cell<usize>,
 
     pub filter_tags: &'a [&'a str],
     pub graph: &'a Graph,
@@ -319,7 +323,7 @@ impl<'a, 'b> Page<'a, 'b> {
                     // Attr name
                     render_opening_tag("span", self.config.class_attr_name.as_str()).into(),
                     html::escape(name).into(),
-                    ":</span>".into(),
+                    ":</span> ".into(),
                     // Attr value
                     render_opening_tag("span", self.config.class_attr_value.as_str()).into(),
                     s,
@@ -420,9 +424,13 @@ impl<'a, 'b> Page<'a, 'b> {
                 true,
                 true,
             ),
-            Expression::BlockQuote(e) => {
-                self.render_style(block, "blockquote", "rm-bq", e, seen_hashtags)?
-            }
+            Expression::BlockQuote(e) => self.render_style(
+                block,
+                "blockquote",
+                self.config.class_blockquote.as_str(),
+                e,
+                seen_hashtags,
+            )?,
             Expression::Text(s) => (html::escape(s).into(), true, true),
             Expression::BlockRef(s) => self.render_block_ref(block, s, seen_hashtags)?,
             Expression::BraceDirective(s) => self.render_brace_directive(block, s, seen_hashtags),
@@ -566,6 +574,10 @@ impl<'a, 'b> Page<'a, 'b> {
     ) -> Result<StringBuilder<'a>> {
         let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
         let render_children = render_children && !block.children.is_empty();
+
+        if block.edit_time > self.latest_found_edit_time.get() {
+            self.latest_found_edit_time.set(block.edit_time);
+        }
 
         // println!(
         //     "Block {} renderchildren: {}, children {:?}, content {}",
