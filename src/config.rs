@@ -76,6 +76,9 @@ struct InputConfig {
     )]
     pub allow_daily_notes: Option<bool>,
 
+    #[structopt(long, env, help = "Only look at daily notes, not any other pages")]
+    pub only_daily_notes: Option<bool>,
+
     #[structopt(
         long,
         env,
@@ -89,6 +92,22 @@ struct InputConfig {
         help = "Exclude these values from the page template's `tags` list"
     )]
     pub exclude_tags: Option<Vec<String>>,
+
+    // TODO Feels like this is starting to call for a small DSL that could match on things like
+    // depth, tag, block, title, etc.
+    #[structopt(
+        long,
+        env,
+        help = "On pages that don't match any exclude criteria but aren't fully public, publish top-level blocks starting with these values"
+    )]
+    pub include_blocks_with_prefix: Option<Vec<String>>,
+
+    #[structopt(
+        long,
+        env,
+        help = "On pages that don't match any exclude criteria but aren't fully public, publish blocks with these tags"
+    )]
+    pub include_blocks_with_tags: Option<Vec<String>>,
 
     #[structopt(long, env, help = "Skip rendering blocks with these attributes")]
     pub omit_attributes: Option<Vec<String>>,
@@ -181,6 +200,13 @@ impl FromStr for PkmProduct {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DailyNotes {
+    Deny,
+    Allow,
+    Exclusive,
+}
+
 pub struct Config {
     pub path: PathBuf,
     pub output: PathBuf,
@@ -191,10 +217,12 @@ pub struct Config {
     pub bool_include_attr: Option<String>,
     pub also: Vec<String>,
     pub include_all: bool,
-    pub allow_daily_notes: bool,
+    pub daily_notes: DailyNotes,
     pub exclude: Vec<String>,
     pub exclude_tags: Vec<String>,
     pub omit_attributes: Vec<String>,
+    pub include_blocks_with_tags: Vec<String>,
+    pub include_blocks_with_prefix: Vec<String>,
     pub highlight_class_prefix: Option<String>,
     pub template: PathBuf,
     pub extension: String,
@@ -261,6 +289,18 @@ impl Config {
             }
         };
 
+        let allow_daily_notes =
+            merge_default(cmdline_cfg.allow_daily_notes, file_cfg.allow_daily_notes);
+
+        let only_daily_notes =
+            merge_default(cmdline_cfg.only_daily_notes, file_cfg.only_daily_notes);
+
+        let daily_notes = match (allow_daily_notes, only_daily_notes) {
+            (_, true) => DailyNotes::Exclusive,
+            (true, false) => DailyNotes::Allow,
+            (false, false) => DailyNotes::Deny,
+        };
+
         let mut cfg = Config {
             path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
@@ -271,13 +311,18 @@ impl Config {
             bool_include_attr: cmdline_cfg.bool_include_attr.or(file_cfg.bool_include_attr),
             also: merge_default(cmdline_cfg.also, file_cfg.also),
             include_all: merge_default(cmdline_cfg.include_all, file_cfg.include_all),
-            allow_daily_notes: merge_default(
-                cmdline_cfg.allow_daily_notes,
-                file_cfg.allow_daily_notes,
-            ),
+            daily_notes,
             exclude: merge_default(cmdline_cfg.exclude, file_cfg.exclude),
             exclude_tags: merge_default(cmdline_cfg.exclude_tags, file_cfg.exclude_tags),
             omit_attributes: merge_default(cmdline_cfg.omit_attributes, file_cfg.omit_attributes),
+            include_blocks_with_tags: merge_default(
+                cmdline_cfg.include_blocks_with_tags,
+                file_cfg.include_blocks_with_tags,
+            ),
+            include_blocks_with_prefix: merge_default(
+                cmdline_cfg.include_blocks_with_prefix,
+                file_cfg.include_blocks_with_prefix,
+            ),
             highlight_class_prefix: cmdline_cfg
                 .highlight_class_prefix
                 .or(file_cfg.highlight_class_prefix),

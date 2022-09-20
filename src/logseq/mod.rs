@@ -19,7 +19,10 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::graph::{AttrList, Block, Graph, ViewType};
+use crate::{
+    config::DailyNotes,
+    graph::{AttrList, Block, Graph, ViewType},
+};
 
 use self::blocks::LogseqRawBlock;
 
@@ -63,7 +66,7 @@ impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
     // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
     // to keep the LogseqGraph around.
-    pub fn build(path: PathBuf, read_journals: bool) -> Result<Graph, anyhow::Error> {
+    pub fn build(path: PathBuf, include_journals: DailyNotes) -> Result<Graph, anyhow::Error> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
             graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
@@ -72,8 +75,10 @@ impl LogseqGraph {
         };
 
         lsgraph.read_page_metadata()?;
-        lsgraph.read_page_directory("pages", false)?;
-        if read_journals {
+        if include_journals != DailyNotes::Exclusive {
+            lsgraph.read_page_directory("pages", false)?;
+        }
+        if include_journals != DailyNotes::Deny {
             lsgraph.read_page_directory("journals", true)?;
         }
 
@@ -132,7 +137,7 @@ impl LogseqGraph {
 
         let mut raw_pages = files
             .par_iter()
-            .map(|file| read_logseq_md_file(file).with_context(|| format!("{file:?}")))
+            .map(|file| read_logseq_md_file(file, is_journal).with_context(|| format!("{file:?}")))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Can't run this step in parallel
@@ -238,16 +243,17 @@ struct LogseqRawPage {
     blocks: Vec<LogseqRawBlock>,
 }
 
-fn read_logseq_md_file(filename: &Path) -> Result<LogseqRawPage, anyhow::Error> {
+fn read_logseq_md_file(filename: &Path, is_journal: bool) -> Result<LogseqRawPage, anyhow::Error> {
     let file =
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
     let mut lines = put_back(BufReader::new(file).lines());
-    parse_logseq_file(filename, &mut lines)
+    parse_logseq_file(filename, &mut lines, is_journal)
 }
 
 fn parse_logseq_file(
     filename: &Path,
     lines: &mut LinesIterator<impl BufRead>,
+    is_journal: bool,
 ) -> Result<LogseqRawPage, anyhow::Error> {
     let page_attrs_list = page_header::parse_page_header(lines)?;
 
@@ -279,10 +285,16 @@ fn parse_logseq_file(
         .collect::<FxHashMap<_, _>>();
 
     if !page_attrs.contains_key("title") {
-        let title = filename
+        let mut title = filename
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .expect("file title");
+
+        if is_journal {
+            // Convert title from 2022_09_20 to 2022-09-20
+            title = title.replace('_', "-");
+        }
+
         page_attrs.insert(String::from("title"), smallvec![title]);
     }
 

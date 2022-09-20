@@ -1,13 +1,13 @@
-use crate::config::Config;
+use crate::config::{Config, DailyNotes};
 use crate::graph::Graph;
-use crate::page::{IdSlugUid, Page, TitleAndUid, TitleSlugUid};
+use crate::page::{IdSlugUid, IncludeScope, Page, TitleAndUid, TitleSlugUid};
 use crate::syntax_highlight;
 use anyhow::{Context, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Serialize;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::io::Write;
 
@@ -49,6 +49,29 @@ pub fn make_pages<'a, 'b>(
         r##"(^|\s)#({})($|\s)"##,
         all_filter_tags_for_regex
     ))?;
+
+    let block_include_prefix_for_regex = config
+        .include_blocks_with_prefix
+        .iter()
+        .map(|s| regex::escape(s.as_str()))
+        .join("|");
+    let block_include_prefix_regex = (!block_include_prefix_for_regex.is_empty())
+        .then(|| regex::Regex::new(&format!(r##"^({})($|\s)"##, block_include_prefix_for_regex)))
+        .transpose()?;
+
+    let block_include_tags_for_regex = config
+        .include_blocks_with_tags
+        .iter()
+        .map(|s| regex::escape(s.as_str()))
+        .join("|");
+    let block_include_tags_regex = (!block_include_tags_for_regex.is_empty())
+        .then(|| {
+            regex::Regex::new(&format!(
+                r##"(^|\s)#({})($|\s)"##,
+                block_include_tags_for_regex
+            ))
+        })
+        .transpose()?;
 
     let exclude_page_tags = config
         .exclude
@@ -113,36 +136,77 @@ pub fn make_pages<'a, 'b>(
             //     println!("{:?}", block.tags);
             // }
 
-            if (config.include_all && matches!(bool_include_attr, Some(false)))
-                || (!config.include_all
-                    && !block.tags.iter().any(|tag| all_filter_tags.contains(tag))
-                    && !block
-                        .attrs
-                        .iter()
-                        .any(|(attr_name, _)| all_filter_tags.contains(attr_name))
-                    && !matches!(bool_include_attr, Some(true)))
-                    && !all_filter_tags_regex.is_match(block.string.as_str())
-            {
-                // If we're including all pages, continue to exclude pages where the bool include
-                // attribute is false.
+            // We're including all pages, or this page is explicitly included.
+            if config.include_all || matches!(bool_include_attr, Some(true)) {
+                return Some((block.containing_page, None));
+            }
 
-                // If we're not including all pages, then check:
+            // Look at all the cases that can include the entire page, if this page isn't
+            // explicitly not included.
+            if !(config.include_all && matches!(bool_include_attr, Some(false))) {
                 // - The page tags to match the include tags
                 // - The page attributes to match the include tags
                 // - The boolean include attribute, if present
-                // Return None if none of those match.
-                return None;
+                if block.tags.iter().any(|tag| all_filter_tags.contains(tag))
+                    || block
+                        .attrs
+                        .iter()
+                        .any(|(attr_name, _)| all_filter_tags.contains(attr_name))
+                    || all_filter_tags_regex.is_match(block.string.as_str())
+                {
+                    return Some((block.containing_page, None));
+                }
             }
 
-            // println!("Including block {block:?}");
+            // Look at if we're including just this block. These checks only apply to top-level
+            // blocks.
+            if block
+                .parent
+                .as_ref()
+                .map(|p| p == &block.containing_page)
+                .unwrap_or(false)
+            {
+                if let Some(re) = block_include_tags_regex.as_ref() {
+                    if re.is_match(block.string.as_str()) {
+                        return Some((block.containing_page, Some(block.id)));
+                    }
+                }
 
-            Some(block.containing_page)
+                if let Some(re) = block_include_prefix_regex.as_ref() {
+                    if re.is_match(block.string.as_str()) {
+                        return Some((block.containing_page, Some(block.id)));
+                    }
+                }
+                // - Top-level block matches for include_blocks_with_prefix (TODO)
+            }
+
+            // Return None if none of the above match.
+            None
         })
-        .collect::<FxHashSet<_>>();
+        .fold(FxHashMap::default(), |mut acc, (page, specific_block)| {
+            acc.entry(page)
+                .and_modify(|mut e| {
+                    match (&mut e, specific_block) {
+                        // It's already full, nothing to do.
+                        (IncludeScope::Full, _) => {}
+                        (IncludeScope::Partial(_), None) => {
+                            *e = IncludeScope::Full;
+                        }
+                        (IncludeScope::Partial(p), Some(b)) => {
+                            p.push(b);
+                        }
+                    }
+                })
+                .or_insert_with(|| match specific_block {
+                    None => IncludeScope::Full,
+                    Some(b) => IncludeScope::Partial(smallvec![b]),
+                });
+            acc
+        });
 
     let included_pages_by_title = included_page_ids
         .into_iter()
-        .filter_map(|page_id| {
+        .filter_map(|(page_id, include_scope)| {
             let page = graph.blocks.get(&page_id)?;
             let title = page.page_title.as_ref()?;
 
@@ -151,7 +215,10 @@ pub fn make_pages<'a, 'b>(
                 return None;
             }
 
-            if excluded_pages.contains(&page.id) || (page.is_journal && !config.allow_daily_notes) {
+            if excluded_pages.contains(&page.id)
+                || (page.is_journal && config.daily_notes == DailyNotes::Deny)
+                || (!page.is_journal && config.daily_notes == DailyNotes::Exclusive)
+            {
                 // println!("Excluded: {}", page.title.as_ref().unwrap());
                 return None;
             }
@@ -159,13 +226,13 @@ pub fn make_pages<'a, 'b>(
             // println!("Including {title}");
 
             let slug = pages_by_title.get(title).unwrap();
-            Some((title.clone(), slug))
+            Some((title.clone(), (slug, include_scope)))
         })
         .collect::<FxHashMap<_, _>>();
 
     let included_pages_by_id = included_pages_by_title
         .iter()
-        .map(|(title, IdSlugUid { id, slug, uid })| {
+        .map(|(title, (IdSlugUid { id, slug, uid }, _))| {
             (
                 *id,
                 TitleSlugUid {
@@ -187,7 +254,7 @@ pub fn make_pages<'a, 'b>(
 
     let pages = included_pages_by_title
         .par_iter()
-        .map(|(title, IdSlugUid { id, slug, uid })| {
+        .map(|(title, (IdSlugUid { id, slug, uid }, include_scope))| {
             let mut output_path = config.output.join(slug);
             output_path.set_extension(&config.extension);
 
@@ -200,9 +267,12 @@ pub fn make_pages<'a, 'b>(
                 config,
                 filter_tags: &filter_tags,
                 pages_by_title: &pages_by_title,
+                include_scope,
                 included_pages_by_title: &included_pages_by_title,
                 included_pages_by_id: &included_pages_by_id,
                 omitted_attributes: &omitted_attributes,
+                include_blocks_with_tags: &config.include_blocks_with_tags,
+                include_blocks_with_prefix: &config.include_blocks_with_prefix,
                 highlighter,
             };
 

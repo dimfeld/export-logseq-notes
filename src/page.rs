@@ -10,6 +10,7 @@ use crate::syntax_highlight;
 use anyhow::{anyhow, Context, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use serde::Serialize;
+use smallvec::SmallVec;
 
 pub struct TitleSlugUid {
     pub title: String,
@@ -29,6 +30,12 @@ pub struct TitleAndUid {
     pub uid: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IncludeScope {
+    Full,
+    Partial(SmallVec<[usize; 4]>),
+}
+
 pub struct Page<'a, 'b> {
     pub id: usize,
     pub title: String,
@@ -40,9 +47,13 @@ pub struct Page<'a, 'b> {
     pub graph: &'a Graph,
     pub config: &'a Config,
     pub pages_by_title: &'a FxHashMap<String, IdSlugUid>,
-    pub included_pages_by_title: &'a FxHashMap<String, &'a IdSlugUid>,
+    pub included_pages_by_title: &'a FxHashMap<String, (&'a IdSlugUid, IncludeScope)>,
     pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
     pub omitted_attributes: &'a FxHashSet<&'a str>,
+
+    pub include_scope: &'a IncludeScope,
+    pub include_blocks_with_tags: &'a Vec<String>,
+    pub include_blocks_with_prefix: &'a Vec<String>,
     pub highlighter: &'b syntax_highlight::Highlighter,
 }
 
@@ -62,7 +73,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn link_if_allowed(&self, s: &'a str, omit_unexported_links: bool) -> StringBuilder<'a> {
         self.included_pages_by_title
             .get(s)
-            .map(|IdSlugUid { slug, .. }| {
+            .map(|(IdSlugUid { slug, .. }, _)| {
                 let url = links::link_path(self.slug, slug, self.config.base_url.as_deref());
                 StringBuilder::from(format!(
                     r##"<a href="{slug}">{title}</a>"##,
@@ -127,7 +138,7 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     fn hashtag(&self, s: &'a str, dot: bool, omit_unexported_links: bool) -> StringBuilder<'a> {
-        if self.filter_tags.contains(&s) {
+        if self.filter_tags.contains(&s) || self.omitted_attributes.contains(&s) {
             // Don't render the primary export tags
             return StringBuilder::Empty;
         }
@@ -465,7 +476,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 let page = if self.config.include_all_page_embeds {
                     self.pages_by_title.get(s)
                 } else {
-                    self.included_pages_by_title.get(s).copied()
+                    self.included_pages_by_title.get(s).map(|s| s.0)
                 };
 
                 // let containing_page = self
@@ -617,7 +628,19 @@ impl<'a, 'b> Page<'a, 'b> {
             let mut children = block
                 .children
                 .iter()
-                .filter_map(|id| self.graph.blocks.get(id))
+                .filter_map(|id| {
+                    let render = match (depth, self.include_scope) {
+                        (0, IncludeScope::Full) => true,
+                        (0, IncludeScope::Partial(p)) => p.contains(id),
+                        (_, _) => true,
+                    };
+
+                    if render {
+                        self.graph.blocks.get(id)
+                    } else {
+                        None
+                    }
+                })
                 .collect::<Vec<_>>();
             if self.graph.block_explicit_ordering {
                 children.sort_by_key(|b| b.order);
