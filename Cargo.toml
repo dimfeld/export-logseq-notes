@@ -1,6 +1,6 @@
 [package]
 name = "export-logseq-notes"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Daniel Imfeld <daniel@imfeld.dev>"]
 edition = "2021"
 
