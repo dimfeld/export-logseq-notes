@@ -160,11 +160,12 @@ pub fn make_pages<'a, 'b>(
 
             // Look at if we're including just this block. These checks only apply to top-level
             // blocks.
-            if block
-                .parent
-                .as_ref()
-                .map(|p| p == &block.containing_page)
-                .unwrap_or(false)
+            if !block.children.is_empty()
+                && block
+                    .parent
+                    .as_ref()
+                    .map(|p| p == &block.containing_page)
+                    .unwrap_or(false)
             {
                 if let Some(re) = block_include_tags_regex.as_ref() {
                     if re.is_match(block.string.as_str()) {
@@ -177,7 +178,6 @@ pub fn make_pages<'a, 'b>(
                         return Some((block.containing_page, Some(block.id)));
                     }
                 }
-                // - Top-level block matches for include_blocks_with_prefix (TODO)
             }
 
             // Return None if none of the above match.

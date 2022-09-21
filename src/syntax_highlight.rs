@@ -32,7 +32,7 @@ impl Highlighter {
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
 
         let mut highlighter = html::ClassedHTMLGenerator::new_with_class_style(
-            &syntax,
+            syntax,
             &self.syntax_set,
             self.class_style,
         );

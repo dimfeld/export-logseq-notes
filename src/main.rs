@@ -9,6 +9,7 @@ mod parse_string;
 #[cfg(test)]
 mod parse_string_tests;
 mod roam_edn;
+mod script;
 mod string_builder;
 mod syntax_highlight;
 mod template;
