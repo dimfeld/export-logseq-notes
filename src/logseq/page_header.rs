@@ -1,4 +1,4 @@
-use fxhash::FxHashMap;
+use eyre::Result;
 use std::io::BufRead;
 
 use crate::graph::AttrList;
@@ -14,7 +14,7 @@ enum HeaderParseState {
 
 pub fn parse_page_header(
     lines: &mut LinesIterator<impl BufRead>,
-) -> Result<Vec<(String, AttrList)>, anyhow::Error> {
+) -> Result<Vec<(String, AttrList)>> {
     let mut page_attrs = Vec::new();
     let first_line = lines.next().transpose()?.unwrap_or_default();
     if first_line.is_empty() {
@@ -98,6 +98,7 @@ mod test {
 
     use std::io::BufRead;
 
+    use eyre::Result;
     use indoc::indoc;
     use itertools::put_back;
     use smallvec::smallvec;
@@ -106,7 +107,7 @@ mod test {
 
     use super::parse_page_header;
 
-    fn run_test(input: &str) -> Result<(String, Vec<(String, AttrList)>), anyhow::Error> {
+    fn run_test(input: &str) -> Result<(String, Vec<(String, AttrList)>)> {
         let mut reader = put_back(std::io::BufReader::new(input.as_bytes()).lines());
         let attrs = parse_page_header(&mut reader)?;
 

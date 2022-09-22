@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use fxhash::FxHashMap;
+use ahash::AHashMap;
 use itertools::{put_back, Itertools};
 use smallvec::smallvec;
 
@@ -106,7 +106,7 @@ Tags:: Project
         },
     ];
 
-    let expected_attrs = FxHashMap::from_iter([
+    let expected_attrs = AHashMap::from_iter([
         (String::from("title"), smallvec![String::from("Circa")]),
         (String::from("tags"), smallvec![String::from("Project")]),
     ]);

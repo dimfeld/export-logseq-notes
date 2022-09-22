@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use fxhash::FxHashMap;
+use ahash::AHashMap;
 use smallvec::SmallVec;
 
 use crate::parse_string::ContentStyle;
@@ -33,7 +33,7 @@ where
 
 pub type AttrList = SmallVec<[String; 1]>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Block {
     pub id: usize,
     pub containing_page: usize,
@@ -45,7 +45,7 @@ pub struct Block {
     pub order: usize,
 
     pub tags: AttrList,
-    pub attrs: FxHashMap<String, AttrList>,
+    pub attrs: AHashMap<String, AttrList>,
     pub is_journal: bool,
 
     pub string: String,
@@ -56,26 +56,27 @@ pub struct Block {
     pub create_time: usize,
 }
 
+#[derive(Debug)]
 pub struct Graph {
     pub blocks: BTreeMap<usize, Block>,
-    pub titles: FxHashMap<String, usize>,
-    pub blocks_by_uid: FxHashMap<String, usize>,
+    pub titles: AHashMap<String, usize>,
+    pub blocks_by_uid: AHashMap<String, usize>,
 
     /// true if the blocks are ordered by the order field, instead of just the order in which they
     /// appear in `children`
     pub block_explicit_ordering: bool,
 
     pub content_style: ContentStyle,
-    pub tagged_blocks: FxHashMap<String, Vec<usize>>,
+    pub tagged_blocks: AHashMap<String, Vec<usize>>,
 }
 
 impl Graph {
     pub fn new(content_style: ContentStyle, block_explicit_ordering: bool) -> Graph {
         Graph {
             blocks: BTreeMap::new(),
-            titles: FxHashMap::default(),
-            blocks_by_uid: FxHashMap::default(),
-            tagged_blocks: FxHashMap::default(),
+            titles: AHashMap::default(),
+            blocks_by_uid: AHashMap::default(),
+            tagged_blocks: AHashMap::default(),
             content_style,
             block_explicit_ordering,
         }

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use eyre::{eyre, Result, WrapErr};
 use serde::Deserialize;
 use std::io::Read;
 use std::path::PathBuf;
@@ -189,13 +189,13 @@ impl Default for PkmProduct {
 }
 
 impl FromStr for PkmProduct {
-    type Err = anyhow::Error;
+    type Err = eyre::Report;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "roam" => Ok(Self::Roam),
             "logseq" => Ok(Self::Logseq),
-            _ => Err(anyhow!("Supported products are roam, logseq")),
+            _ => Err(eyre!("Supported products are roam, logseq")),
         }
     }
 }
@@ -252,7 +252,7 @@ pub struct Config {
 fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<T> {
     first
         .or(second)
-        .ok_or_else(|| anyhow!("The {} option is required", name))
+        .ok_or_else(|| eyre!("The {} option is required", name))
 }
 
 fn merge_default<T: Default>(first: Option<T>, second: Option<T>) -> T {

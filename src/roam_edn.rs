@@ -1,5 +1,6 @@
+use ahash::AHashMap;
 use edn_rs::{Edn, EdnError};
-use fxhash::FxHashMap;
+use eyre::Result;
 use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
@@ -54,7 +55,7 @@ struct RoamBlock {
     pub page: usize,
     pub order: usize,
     pub refs: SmallVec<[usize; 4]>,
-    pub referenced_attrs: FxHashMap<String, SmallVec<[AttrValue; 4]>>,
+    pub referenced_attrs: AHashMap<String, SmallVec<[AttrValue; 4]>>,
 
     /** Nonzero indicates that this is a daily log page (I think) */
     pub log_id: usize,
@@ -327,8 +328,8 @@ impl RoamGraph {
                 (":entity/attrs", Edn::Set(attrs)) => {
                     // List of attributes referenced within a page
 
-                    let mut grouped: FxHashMap<String, SmallVec<[AttrValue; 4]>> =
-                        FxHashMap::default();
+                    let mut grouped: AHashMap<String, SmallVec<[AttrValue; 4]>> =
+                        AHashMap::default();
                     let attr_values = attrs
                         .to_set()
                         .into_iter()
@@ -371,7 +372,7 @@ impl RoamGraph {
     }
 }
 
-pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
+pub fn graph_from_roam_edn(path: &str) -> Result<Graph> {
     let roam_graph = RoamGraph::from_edn(path)?;
     let mut graph = Graph::new(ContentStyle::Roam, true);
 

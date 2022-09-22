@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use anyhow::anyhow;
+use eyre::{eyre, Result};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
@@ -38,7 +38,7 @@ pub struct LogseqRawBlock {
 pub fn parse_raw_blocks(
     blocks: &mut Vec<LogseqRawBlock>,
     lines: &mut LinesIterator<impl BufRead>,
-) -> Result<(), anyhow::Error> {
+) -> Result<()> {
     let mut current_indent = 0;
     let mut current_parent: Option<usize> = None;
     loop {
@@ -77,9 +77,7 @@ enum RawBlockOutput {
 }
 
 // Take the first line separately just because that's how the header parser returns it.
-fn read_raw_block(
-    lines: &mut LinesIterator<impl BufRead>,
-) -> Result<RawBlockOutput, anyhow::Error> {
+fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOutput> {
     // Most blocks will just be one or two lines
     let mut line_contents: SmallVec<[String; 2]> = SmallVec::new();
     let mut indent = 0;
@@ -161,7 +159,7 @@ fn count_repeated_char(input: &str, match_char: char) -> IResult<&str, u32> {
     })(input)
 }
 
-fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
+fn evaluate_line(line: &str) -> Result<Option<Line<'_>>> {
     if line.is_empty() {
         return Ok(None);
     }
@@ -186,7 +184,7 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>, anyhow::Error> {
             map(opt(tag("  ")), |_| (false, 0)),
         )),
     ))(line)
-    .map_err(|e| anyhow!("{}", e))?;
+    .map_err(|e| eyre!("{}", e))?;
 
     let (attr_name, attr_values) = match parse_attr_line("::", rest) {
         Ok(Some(v)) => v,

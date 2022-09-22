@@ -7,8 +7,8 @@ use crate::links;
 use crate::parse_string::{parse, Expression};
 use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
-use anyhow::{anyhow, Context, Result};
-use fxhash::{FxHashMap, FxHashSet};
+use ahash::{AHashMap, AHashSet};
+use eyre::{eyre, Result, WrapErr};
 use serde::Serialize;
 use smallvec::SmallVec;
 
@@ -46,10 +46,10 @@ pub struct Page<'a, 'b> {
     pub filter_tags: &'a [&'a str],
     pub graph: &'a Graph,
     pub config: &'a Config,
-    pub pages_by_title: &'a FxHashMap<String, IdSlugUid>,
-    pub included_pages_by_title: &'a FxHashMap<String, (&'a IdSlugUid, IncludeScope)>,
-    pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
-    pub omitted_attributes: &'a FxHashSet<&'a str>,
+    pub pages_by_title: &'a AHashMap<String, IdSlugUid>,
+    pub included_pages_by_title: &'a AHashMap<String, (&'a IdSlugUid, IncludeScope)>,
+    pub included_pages_by_id: &'a AHashMap<usize, TitleSlugUid>,
+    pub omitted_attributes: &'a AHashSet<&'a str>,
 
     pub include_scope: &'a IncludeScope,
     pub include_blocks_with_tags: &'a Vec<String>,
@@ -94,7 +94,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         containing_block: &'a Block,
         s: &'a str,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         let block = self.graph.block_from_uid(s);
         match block {
@@ -128,7 +128,7 @@ impl<'a, 'b> Page<'a, 'b> {
             None => {
                 // Block ref syntax can also be expandable text. So if we don't match on a block then just render it.
                 parse(self.graph.content_style, s)
-                    .map_err(|e| anyhow!("Parse Error: {}", e))
+                    .map_err(|e| eyre!("Parse Error: {}", e))
                     .and_then(|expressions| {
                         self.render_expressions(containing_block, expressions, seen_hashtags, false)
                     })
@@ -158,7 +158,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_block_embed(
         &self,
         s: &str,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Result<StringBuilder<'a>> {
         self.graph
             .block_from_uid(s)
@@ -182,7 +182,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         row: Vec<StringBuilder<'a>>,
         id: usize,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Vec<Vec<StringBuilder<'a>>> {
         self.graph
             .blocks
@@ -213,7 +213,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_table(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> StringBuilder<'a> {
         let rows = block
             .children
@@ -243,7 +243,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         s: &'a str,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> (StringBuilder<'a>, bool, bool) {
         let (value, render_children) = match s {
             "table" => (self.render_table(block, seen_hashtags), false),
@@ -268,7 +268,7 @@ impl<'a, 'b> Page<'a, 'b> {
         tag: &'a str,
         class: &'a str,
         e: Vec<Expression<'a>>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         self.render_expressions(block, e, seen_hashtags, false)
             .map(|(s, rc)| {
@@ -288,7 +288,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         e: Vec<Expression<'a>>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let num_exprs = e.len();
@@ -321,7 +321,7 @@ impl<'a, 'b> Page<'a, 'b> {
         block: &'a Block,
         name: &'a str,
         contents: Vec<Expression<'a>>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         if self.filter_tags.contains(&name) || self.omitted_attributes.get(name).is_some() {
             return Ok((StringBuilder::Empty, false, true));
@@ -349,7 +349,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         e: Expression<'a>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         let rendered = match e {
@@ -529,10 +529,10 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_line_without_header(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let parsed = parse(self.graph.content_style, &block.string)
-            .map_err(|e| anyhow!("Parse Error: {:?}", e))?;
+            .map_err(|e| eyre!("Parse Error: {:?}", e))?;
 
         let filter_links = self.config.filter_link_only_blocks
             && parsed.iter().all(|e| match e {
@@ -550,7 +550,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_line(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
         self.render_line_without_header(block, seen_hashtags)
             .map(|result| {
@@ -580,7 +580,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_block_and_children(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut AHashSet<&'a str>,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
         let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
@@ -671,9 +671,9 @@ impl<'a, 'b> Page<'a, 'b> {
         Ok(result)
     }
 
-    pub fn render(&self) -> Result<(String, FxHashSet<&'a str>)> {
+    pub fn render(&self) -> Result<(String, AHashSet<&'a str>)> {
         let block = self.graph.blocks.get(&self.id).unwrap();
-        let mut seen_hashtags: FxHashSet<&'a str> = FxHashSet::default();
+        let mut seen_hashtags: AHashSet<&'a str> = AHashSet::default();
         self.render_block_and_children(block, &mut seen_hashtags, 0)
             .map(|results| (results.build(), seen_hashtags))
     }

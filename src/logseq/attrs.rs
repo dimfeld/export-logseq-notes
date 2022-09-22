@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use eyre::{eyre, Result};
 use nom::{
     branch::alt, bytes::complete::take_while1, combinator::map, multi::separated_list0, IResult,
 };
@@ -7,10 +7,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::graph::AttrList;
 use crate::parse_string::{hashtag, link_or_word};
 
-pub fn parse_attr_line(
-    separator: &str,
-    line: &str,
-) -> Result<Option<(String, AttrList)>, anyhow::Error> {
+pub fn parse_attr_line(separator: &str, line: &str) -> Result<Option<(String, AttrList)>> {
     line.split_once(separator)
         .filter(|(attr_name, _)| !attr_name.chars().any(|c| c.is_whitespace()))
         .map(|(attr_name, attr_value_str)| {
@@ -34,10 +31,10 @@ fn parse_tag_value(input: &str) -> IResult<&str, &str> {
     alt((map(hashtag, |(value, _)| value), link_or_word))(input)
 }
 
-fn parse_tag_values(input: &str) -> Result<AttrList, anyhow::Error> {
+fn parse_tag_values(input: &str) -> Result<AttrList> {
     let values = match separated_list0(tag_value_separator, parse_tag_value)(input) {
         Ok((_, values)) => values,
-        Err(e) => return Err(anyhow!("Parsing {}: {}", input, e)),
+        Err(e) => return Err(eyre!("Parsing {}: {}", input, e)),
     };
 
     Ok(values

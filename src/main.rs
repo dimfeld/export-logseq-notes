@@ -13,8 +13,8 @@ mod script;
 mod string_builder;
 mod syntax_highlight;
 mod template;
-use anyhow::{Context, Result};
 use config::Config;
+use eyre::{Result, WrapErr};
 use std::fs::File;
 use std::io::Read;
 use zip::read::ZipArchive;
@@ -23,6 +23,8 @@ use crate::config::PkmProduct;
 use crate::make_pages::make_pages;
 
 fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let config = Config::load()?;
 
     let hbars = template::create(&config.template)?;
