@@ -82,7 +82,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
     let mut line_contents: SmallVec<[String; 2]> = SmallVec::new();
     let mut indent = 0;
     let mut id = String::new();
-    let mut view_type = ViewType::Bullet;
+    let mut view_type = ViewType::Inherit;
     let mut header = 0;
 
     let mut all_done = false;

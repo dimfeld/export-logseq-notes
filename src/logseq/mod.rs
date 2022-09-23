@@ -11,17 +11,17 @@ use std::{
     str::FromStr,
 };
 
-use ahash::AHashMap;
+use ahash::HashMap;
 use edn_rs::Edn;
 use eyre::{eyre, Result, WrapErr};
-use itertools::{put_back, Itertools, PutBack};
+use itertools::{put_back, PutBack};
 use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
     config::DailyNotes,
-    graph::{AttrList, Block, Graph, ViewType},
+    graph::{AttrList, Block, BlockInclude, Graph, ViewType},
 };
 
 use self::blocks::LogseqRawBlock;
@@ -39,7 +39,7 @@ pub struct JsonBlock {
     #[serde(rename = "page-name")]
     pub page_name: Option<String>,
     #[serde(default)]
-    pub properties: AHashMap<String, serde_json::Value>,
+    pub properties: HashMap<String, serde_json::Value>,
     pub children: Vec<JsonBlock>,
     pub format: Option<BlockFormat>,
     pub content: Option<String>,
@@ -57,7 +57,7 @@ pub struct LogseqGraph {
     root: PathBuf,
     graph: Graph,
 
-    page_metadata: AHashMap<String, PageMetadata>,
+    page_metadata: HashMap<String, PageMetadata>,
 }
 
 type LinesIterator<T> = PutBack<std::io::Lines<T>>;
@@ -71,7 +71,7 @@ impl LogseqGraph {
             next_id: 0,
             graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
             root: path,
-            page_metadata: AHashMap::default(),
+            page_metadata: HashMap::default(),
         };
 
         lsgraph.read_page_metadata()?;
@@ -184,6 +184,7 @@ impl LogseqGraph {
         let page_block = Block {
             id: page.base_id,
             uid,
+            include_type: BlockInclude::default(),
             containing_page: page.base_id,
             page_title: title,
             is_journal,
@@ -214,10 +215,11 @@ impl LogseqGraph {
             let block = Block {
                 id: this_id,
                 uid: input.id,
+                include_type: BlockInclude::default(),
                 order: 0,
                 parent: Some(parent_id),
                 children: SmallVec::new(),
-                attrs: AHashMap::default(), // this_input.attrs,
+                attrs: HashMap::default(), // this_input.attrs,
                 tags: SmallVec::new(),
                 create_time: 0,
                 edit_time: 0,
@@ -239,7 +241,7 @@ impl LogseqGraph {
 #[derive(Debug, PartialEq, Eq)]
 struct LogseqRawPage {
     base_id: usize,
-    attrs: AHashMap<String, AttrList>,
+    attrs: HashMap<String, AttrList>,
     blocks: Vec<LogseqRawBlock>,
 }
 
@@ -282,7 +284,7 @@ fn parse_logseq_file(
     let mut page_attrs = page_attrs_list
         .into_iter()
         .map(|(attr_name, values)| (attr_name.to_lowercase(), values))
-        .collect::<AHashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
 
     if !page_attrs.contains_key("title") {
         let mut title = filename

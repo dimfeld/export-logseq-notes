@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use ahash::AHashMap;
+use ahash::HashMap;
 use itertools::{put_back, Itertools};
 use smallvec::smallvec;
 
@@ -33,7 +33,7 @@ Tags:: Project
 
     let mut reader = put_back(std::io::BufReader::new(source.as_bytes()).lines());
     let filename = std::path::PathBuf::from("abc/the filename.md");
-    let parsed = super::parse_logseq_file(&filename, &mut reader).expect("parsing");
+    let parsed = super::parse_logseq_file(&filename, &mut reader, false).expect("parsing");
 
     let expected_blocks = vec![
         LogseqRawBlock {
@@ -106,7 +106,7 @@ Tags:: Project
         },
     ];
 
-    let expected_attrs = AHashMap::from_iter([
+    let expected_attrs = HashMap::from_iter([
         (String::from("title"), smallvec![String::from("Circa")]),
         (String::from("tags"), smallvec![String::from("Project")]),
     ]);

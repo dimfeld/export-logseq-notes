@@ -1,21 +1,17 @@
 use std::collections::BTreeMap;
 
-use ahash::AHashMap;
+use ahash::HashMap;
 use smallvec::SmallVec;
 
 use crate::parse_string::ContentStyle;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
+    #[default]
+    Inherit,
     Bullet,
     Numbered,
     Document,
-}
-
-impl Default for ViewType {
-    fn default() -> ViewType {
-        ViewType::Bullet
-    }
 }
 
 impl<T> From<T> for ViewType
@@ -26,12 +22,39 @@ where
         match value.as_ref() {
             "document" => ViewType::Document,
             "numbered" => ViewType::Numbered,
-            _ => ViewType::Bullet,
+            "bullet" => ViewType::Bullet,
+            _ => ViewType::Inherit,
+        }
+    }
+}
+
+impl ViewType {
+    pub fn default_view_type() -> ViewType {
+        ViewType::Bullet
+    }
+
+    pub fn resolve_with_parent(&self, parent: ViewType) -> ViewType {
+        match self {
+            ViewType::Inherit => parent,
+            _ => *self,
         }
     }
 }
 
 pub type AttrList = SmallVec<[String; 1]>;
+
+#[derive(Debug, Default, Copy, Clone)]
+pub enum BlockInclude {
+    /// Render the block and its children.
+    #[default]
+    AndChildren,
+    /// Skip rendering the block, but render its children.
+    OnlyChildren,
+    /// Render just this block and not its children.
+    JustBlock,
+    /// Don't render the block or its children.
+    Exclude,
+}
 
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -43,9 +66,10 @@ pub struct Block {
     pub parent: Option<usize>,
     pub children: SmallVec<[usize; 2]>,
     pub order: usize,
+    pub include_type: BlockInclude,
 
     pub tags: AttrList,
-    pub attrs: AHashMap<String, AttrList>,
+    pub attrs: HashMap<String, AttrList>,
     pub is_journal: bool,
 
     pub string: String,
@@ -59,24 +83,24 @@ pub struct Block {
 #[derive(Debug)]
 pub struct Graph {
     pub blocks: BTreeMap<usize, Block>,
-    pub titles: AHashMap<String, usize>,
-    pub blocks_by_uid: AHashMap<String, usize>,
+    pub titles: HashMap<String, usize>,
+    pub blocks_by_uid: HashMap<String, usize>,
 
     /// true if the blocks are ordered by the order field, instead of just the order in which they
     /// appear in `children`
     pub block_explicit_ordering: bool,
 
     pub content_style: ContentStyle,
-    pub tagged_blocks: AHashMap<String, Vec<usize>>,
+    pub tagged_blocks: HashMap<String, Vec<usize>>,
 }
 
 impl Graph {
     pub fn new(content_style: ContentStyle, block_explicit_ordering: bool) -> Graph {
         Graph {
             blocks: BTreeMap::new(),
-            titles: AHashMap::default(),
-            blocks_by_uid: AHashMap::default(),
-            tagged_blocks: AHashMap::default(),
+            titles: HashMap::default(),
+            blocks_by_uid: HashMap::default(),
+            tagged_blocks: HashMap::default(),
             content_style,
             block_explicit_ordering,
         }

@@ -2,7 +2,7 @@ use crate::config::{Config, DailyNotes};
 use crate::graph::Graph;
 use crate::page::{IdSlugUid, IncludeScope, Page, TitleAndUid, TitleSlugUid};
 use crate::syntax_highlight;
-use ahash::{AHashMap, AHashSet};
+use ahash::{HashMap, HashSet};
 use eyre::{Result, WrapErr};
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -20,7 +20,7 @@ struct TemplateArgs<'a> {
     edited_time: usize,
 }
 
-fn title_to_slug(s: &str) -> String {
+pub fn title_to_slug(s: &str) -> String {
     s.split(|c: char| c.is_whitespace() || c == '/' || c == '-' || c == ':')
         .map(|word| {
             word.chars()
@@ -37,7 +37,7 @@ pub fn make_pages<'a, 'b>(
     handlebars: &handlebars::Handlebars,
     highlighter: &'b syntax_highlight::Highlighter,
     config: &'a Config,
-) -> Result<AHashMap<String, TitleAndUid>> {
+) -> Result<HashMap<String, TitleAndUid>> {
     let mut all_filter_tags = Vec::new();
     if let Some(include) = config.include.clone() {
         all_filter_tags.push(include);
@@ -88,19 +88,19 @@ pub fn make_pages<'a, 'b>(
                 .filter_map(|tag| graph.titles.get(*tag))
                 .copied(),
         )
-        .collect::<AHashSet<usize>>();
+        .collect::<HashSet<usize>>();
 
     let exclude_tag_names = config
         .exclude_tags
         .iter()
         .map(|s| s.as_str())
-        .collect::<AHashSet<_>>();
+        .collect::<HashSet<_>>();
 
     let omitted_attributes = config
         .omit_attributes
         .iter()
         .map(|x| x.as_str())
-        .collect::<AHashSet<_>>();
+        .collect::<HashSet<_>>();
 
     let pages_by_title = graph
         .pages()
@@ -120,7 +120,7 @@ pub fn make_pages<'a, 'b>(
                 },
             )
         })
-        .collect::<AHashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
 
     let included_page_ids = graph
         .blocks
@@ -183,7 +183,7 @@ pub fn make_pages<'a, 'b>(
             // Return None if none of the above match.
             None
         })
-        .fold(AHashMap::default(), |mut acc, (page, specific_block)| {
+        .fold(HashMap::default(), |mut acc, (page, specific_block)| {
             acc.entry(page)
                 .and_modify(|mut e| {
                     match (&mut e, specific_block) {
@@ -228,7 +228,7 @@ pub fn make_pages<'a, 'b>(
             let slug = pages_by_title.get(title).unwrap();
             Some((title.clone(), (slug, include_scope)))
         })
-        .collect::<AHashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
 
     let included_pages_by_id = included_pages_by_title
         .iter()
@@ -242,7 +242,7 @@ pub fn make_pages<'a, 'b>(
                 },
             )
         })
-        .collect::<AHashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
 
     let filter_tags = [
         config.include.as_deref(),
@@ -284,13 +284,13 @@ pub fn make_pages<'a, 'b>(
                 .tags_attr
                 .as_deref()
                 .and_then(|tag_name| block.attrs.get(tag_name))
-                .map(|values| values.iter().map(|s| s.as_str()).collect::<AHashSet<_>>())
-                .unwrap_or_else(AHashSet::default);
+                .map(|values| values.iter().map(|s| s.as_str()).collect::<HashSet<_>>())
+                .unwrap_or_else(HashSet::default);
 
             let hashtags = if config.use_all_hashtags {
                 hashtags
             } else {
-                AHashSet::default()
+                HashSet::default()
             };
 
             let tags = tags_set
@@ -302,7 +302,7 @@ pub fn make_pages<'a, 'b>(
             let lower_tags = tags
                 .iter()
                 .map(|t| t.to_lowercase())
-                .collect::<AHashSet<_>>();
+                .collect::<HashSet<_>>();
 
             // println!("{:?} {:?}", title, tags);
 
@@ -347,7 +347,7 @@ pub fn make_pages<'a, 'b>(
                 },
             ))
         })
-        .collect::<Result<AHashMap<_, _>>>()?;
+        .collect::<Result<HashMap<_, _>>>()?;
 
     let manifest_path = config.output.join("manifest.json");
     let mut manifest_writer = std::fs::File::create(&manifest_path)

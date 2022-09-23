@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use ahash::HashMap;
 use edn_rs::{Edn, EdnError};
 use eyre::Result;
 use smallvec::SmallVec;
@@ -8,7 +8,7 @@ use std::mem;
 use std::str::FromStr;
 
 use crate::{
-    graph::{Block, Graph, ViewType},
+    graph::{Block, BlockInclude, Graph, ViewType},
     parse_string::ContentStyle,
 };
 
@@ -55,7 +55,7 @@ struct RoamBlock {
     pub page: usize,
     pub order: usize,
     pub refs: SmallVec<[usize; 4]>,
-    pub referenced_attrs: AHashMap<String, SmallVec<[AttrValue; 4]>>,
+    pub referenced_attrs: HashMap<String, SmallVec<[AttrValue; 4]>>,
 
     /** Nonzero indicates that this is a daily log page (I think) */
     pub log_id: usize,
@@ -328,8 +328,7 @@ impl RoamGraph {
                 (":entity/attrs", Edn::Set(attrs)) => {
                     // List of attributes referenced within a page
 
-                    let mut grouped: AHashMap<String, SmallVec<[AttrValue; 4]>> =
-                        AHashMap::default();
+                    let mut grouped: HashMap<String, SmallVec<[AttrValue; 4]>> = HashMap::default();
                     let attr_values = attrs
                         .to_set()
                         .into_iter()
@@ -414,6 +413,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph> {
         let block = Block {
             id: roam_block.id,
             uid: roam_block.uid.clone(),
+            include_type: BlockInclude::default(),
             containing_page: roam_block.page,
             page_title: roam_block.title.clone(),
             tags,
@@ -423,7 +423,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph> {
             is_journal: roam_block.log_id > 0,
 
             order: roam_block.order,
-            parent: roam_block.parents.get(0).copied(),
+            parent: roam_block.parents.first().copied(),
             children: roam_block.children.clone(),
             string: roam_block.string.clone(),
             heading: roam_block.heading,
