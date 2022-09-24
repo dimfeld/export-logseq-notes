@@ -80,7 +80,6 @@ impl<'a> DedupingTemplateRegistry<'a> {
             return Ok(existing.clone());
         }
 
-        let key = format!("file:{p}");
         let template =
             std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
         self.add_template(key, template)

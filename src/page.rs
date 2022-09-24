@@ -3,14 +3,12 @@ use std::cell::Cell;
 use crate::config::Config;
 use crate::graph::{Block, BlockInclude, Graph, ViewType};
 use crate::html;
-use crate::links;
 use crate::parse_string::{parse, Expression};
 use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
 use serde::Serialize;
-use smallvec::SmallVec;
 
 pub struct TitleSlugUid {
     pub title: String,
@@ -29,15 +27,10 @@ pub struct IdSlugUid {
 }
 
 #[derive(Serialize)]
-pub struct TitleAndUid {
+pub struct ManifestItem {
+    pub slug: String,
     pub title: String,
     pub uid: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum IncludeScope {
-    Full,
-    Partial(SmallVec<[usize; 4]>),
 }
 
 pub struct Page<'a, 'b> {
@@ -73,11 +66,10 @@ impl<'a, 'b> Page<'a, 'b> {
             .get(s)
             .filter(|p| p.include)
             .map(|IdSlugUid { slug, .. }| {
-                let url = links::link_path(self.slug, slug, self.config.base_url.as_deref());
                 StringBuilder::from(format!(
                     r##"<a href="{slug}">{title}</a>"##,
                     title = html::escape(s),
-                    slug = html::escape(url.as_ref())
+                    slug = html::escape(slug)
                 ))
             })
             .unwrap_or_else(|| {
@@ -107,15 +99,10 @@ impl<'a, 'b> Page<'a, 'b> {
                         {
                             Some(page) => {
                                 // When the referenced page is exported, make this a link to the block.
-                                let url = links::link_path(
-                                    self.slug,
-                                    &page.slug,
-                                    self.config.base_url.as_deref(),
-                                );
                                 let linked = StringBuilder::Vec(vec![
                                     StringBuilder::from(format!(
                                         r##"<a class="block-ref" href="{page}#{block}">"##,
-                                        page = url,
+                                        page = &page.slug,
                                         block = block.uid
                                     )),
                                     result,
@@ -141,11 +128,6 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     fn hashtag(&self, s: &'a str, dot: bool, omit_unexported_links: bool) -> StringBuilder<'a> {
-        if self.omitted_attributes.contains(&s) {
-            // Don't render the primary export tags
-            return StringBuilder::Empty;
-        }
-
         let anchor = self.link_if_allowed(s, omit_unexported_links);
         if dot && !anchor.is_empty() {
             StringBuilder::Vec(vec![
@@ -463,32 +445,9 @@ impl<'a, 'b> Page<'a, 'b> {
 
                 (tag, true, true)
             }
-            Expression::BlockEmbed(s) => {
-                // let containing_page = self
-                //     .graph
-                //     .blocks
-                //     .get(&block.containing_page)
-                //     .and_then(|b| b.page_title.as_ref());
-                // let referenced_page = self
-                //     .graph
-                //     .blocks_by_uid
-                //     .get(s)
-                //     .and_then(|id| self.graph.blocks.get(id))
-                //     .and_then(|block| self.graph.blocks.get(&block.containing_page))
-                //     .and_then(|b| b.page_title.as_ref());
-                // println!("Page {containing_page:?} embedded block {s} in {referenced_page:?}");
-
-                (self.render_block_embed(s, seen_hashtags)?, true, true)
-            }
+            Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true, true),
             Expression::PageEmbed(s) => {
                 let page = self.pages_by_title.get(s).filter(|p| p.allow_embed);
-
-                // let containing_page = self
-                //     .graph
-                //     .blocks
-                //     .get(&block.containing_page)
-                //     .and_then(|b| b.page_title.as_ref());
-                // println!("Page {containing_page:?} embedded page {s}");
 
                 let result = page
                     .map(|IdSlugUid { id: block_id, .. }| {

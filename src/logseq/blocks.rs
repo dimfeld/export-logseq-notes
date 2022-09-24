@@ -10,7 +10,6 @@ use nom::{
     sequence::{preceded, terminated, tuple},
     IResult,
 };
-use regex::Regex;
 use smallvec::SmallVec;
 
 use crate::graph::{AttrList, ViewType};

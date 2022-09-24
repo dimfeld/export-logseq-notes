@@ -339,6 +339,11 @@ pub mod rhai_page {
     }
 
     #[rhai_fn(global)]
+    pub fn remove_attr(page: &mut Page, name: String) {
+        page.config.attrs.remove(&name);
+    }
+
+    #[rhai_fn(global)]
     pub fn set_attr(page: &mut Page, attr: String, value: String) {
         page.config.attrs.insert(attr, smallvec![value]);
     }
