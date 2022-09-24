@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use ahash::HashMap;
 use smallvec::SmallVec;
 
@@ -43,7 +41,7 @@ impl ViewType {
 
 pub type AttrList = SmallVec<[String; 1]>;
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum BlockInclude {
     /// Render the block and its children.
     #[default]
@@ -54,6 +52,8 @@ pub enum BlockInclude {
     JustBlock,
     /// Don't render the block or its children.
     Exclude,
+    /// Render the block and its children, if the children have content
+    IfChildrenPresent,
 }
 
 #[derive(Clone, Debug)]
@@ -82,9 +82,9 @@ pub struct Block {
 
 #[derive(Debug)]
 pub struct Graph {
-    pub blocks: BTreeMap<usize, Block>,
-    pub titles: HashMap<String, usize>,
+    pub blocks: HashMap<usize, Block>,
     pub blocks_by_uid: HashMap<String, usize>,
+    pub page_blocks: Vec<usize>,
 
     /// true if the blocks are ordered by the order field, instead of just the order in which they
     /// appear in `children`
@@ -97,9 +97,9 @@ pub struct Graph {
 impl Graph {
     pub fn new(content_style: ContentStyle, block_explicit_ordering: bool) -> Graph {
         Graph {
-            blocks: BTreeMap::new(),
-            titles: HashMap::default(),
+            blocks: HashMap::default(),
             blocks_by_uid: HashMap::default(),
+            page_blocks: Vec::new(),
             tagged_blocks: HashMap::default(),
             content_style,
             block_explicit_ordering,
@@ -107,8 +107,8 @@ impl Graph {
     }
 
     pub fn add_block(&mut self, block: Block) {
-        if let Some(title) = block.page_title.as_ref() {
-            self.titles.insert(title.clone(), block.id);
+        if block.page_title.is_some() {
+            self.page_blocks.push(block.id);
         }
 
         for tag in block.tags.iter() {

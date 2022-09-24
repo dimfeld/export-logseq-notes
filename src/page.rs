@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use crate::config::Config;
-use crate::graph::{Block, Graph, ViewType};
+use crate::graph::{Block, BlockInclude, Graph, ViewType};
 use crate::html;
 use crate::links;
 use crate::parse_string::{parse, Expression};
@@ -16,12 +16,16 @@ pub struct TitleSlugUid {
     pub title: String,
     pub slug: String,
     pub uid: String,
+    pub include: bool,
+    pub allow_embed: bool,
 }
 
 pub struct IdSlugUid {
     pub id: usize,
     pub slug: String,
     pub uid: String,
+    pub include: bool,
+    pub allow_embed: bool,
 }
 
 #[derive(Serialize)]
@@ -43,17 +47,11 @@ pub struct Page<'a, 'b> {
 
     pub latest_found_edit_time: Cell<usize>,
 
-    pub filter_tags: &'a [&'a str],
     pub graph: &'a Graph,
     pub config: &'a Config,
     pub pages_by_title: &'a HashMap<String, IdSlugUid>,
-    pub included_pages_by_title: &'a HashMap<String, (&'a IdSlugUid, IncludeScope)>,
-    pub included_pages_by_id: &'a HashMap<usize, TitleSlugUid>,
+    pub pages_by_id: &'a HashMap<usize, TitleSlugUid>,
     pub omitted_attributes: &'a HashSet<&'a str>,
-
-    pub include_scope: &'a IncludeScope,
-    pub include_blocks_with_tags: &'a Vec<String>,
-    pub include_blocks_with_prefix: &'a Vec<String>,
     pub highlighter: &'b syntax_highlight::Highlighter,
 }
 
@@ -71,9 +69,10 @@ fn render_opening_tag(tag: &str, class: &str) -> String {
 
 impl<'a, 'b> Page<'a, 'b> {
     fn link_if_allowed(&self, s: &'a str, omit_unexported_links: bool) -> StringBuilder<'a> {
-        self.included_pages_by_title
+        self.pages_by_title
             .get(s)
-            .map(|(IdSlugUid { slug, .. }, _)| {
+            .filter(|p| p.include)
+            .map(|IdSlugUid { slug, .. }| {
                 let url = links::link_path(self.slug, slug, self.config.base_url.as_deref());
                 StringBuilder::from(format!(
                     r##"<a href="{slug}">{title}</a>"##,
@@ -101,7 +100,11 @@ impl<'a, 'b> Page<'a, 'b> {
             Some(block) => {
                 self.render_line_without_header(block, seen_hashtags)
                     .map(|(result, _)| {
-                        match self.included_pages_by_id.get(&block.containing_page) {
+                        match self
+                            .pages_by_id
+                            .get(&block.containing_page)
+                            .filter(|p| p.include)
+                        {
                             Some(page) => {
                                 // When the referenced page is exported, make this a link to the block.
                                 let url = links::link_path(
@@ -138,7 +141,7 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     fn hashtag(&self, s: &'a str, dot: bool, omit_unexported_links: bool) -> StringBuilder<'a> {
-        if self.filter_tags.contains(&s) || self.omitted_attributes.contains(&s) {
+        if self.omitted_attributes.contains(&s) {
             // Don't render the primary export tags
             return StringBuilder::Empty;
         }
@@ -328,7 +331,7 @@ impl<'a, 'b> Page<'a, 'b> {
         contents: Vec<Expression<'a>>,
         seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
-        if self.filter_tags.contains(&name) || self.omitted_attributes.get(name).is_some() {
+        if self.omitted_attributes.get(name).is_some() {
             return Ok((StringBuilder::Empty, false, true));
         }
 
@@ -478,11 +481,7 @@ impl<'a, 'b> Page<'a, 'b> {
                 (self.render_block_embed(s, seen_hashtags)?, true, true)
             }
             Expression::PageEmbed(s) => {
-                let page = if self.config.include_all_page_embeds {
-                    self.pages_by_title.get(s)
-                } else {
-                    self.included_pages_by_title.get(s).map(|s| s.0)
-                };
+                let page = self.pages_by_title.get(s).filter(|p| p.allow_embed);
 
                 // let containing_page = self
                 //     .graph
@@ -593,25 +592,34 @@ impl<'a, 'b> Page<'a, 'b> {
         inherited_view_type: ViewType,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
-        let render_children = render_children && !block.children.is_empty();
+        let (rendered, render_li, render_children) = match block.include_type {
+            BlockInclude::Exclude => return Ok(StringBuilder::Empty),
+            BlockInclude::JustBlock => {
+                let (rendered, _) = self.render_line(block, seen_hashtags)?;
+                (rendered, true, false)
+            }
+            BlockInclude::AndChildren | BlockInclude::IfChildrenPresent => {
+                let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
+                (rendered, true, render_children)
+            }
+            BlockInclude::OnlyChildren => (StringBuilder::Empty, false, true),
+        };
 
+        let increase_depth = block.include_type != BlockInclude::OnlyChildren;
+        let render_children = render_children && !block.children.is_empty();
         let view_type = block.view_type.resolve_with_parent(inherited_view_type);
 
         if block.edit_time > self.latest_found_edit_time.get() {
             self.latest_found_edit_time.set(block.edit_time);
         }
 
-        // println!(
-        //     "Block {} renderchildren: {}, children {:?}, content {}",
-        //     block.id, render_children, block.children, block.string
-        // );
+        // println!("Block {block:?} renderchildren: {render_children}",);
 
         if rendered.is_blank() && !render_children {
             return Ok(StringBuilder::Empty);
         }
 
-        let render_li = depth > 0;
+        let render_li = render_li && depth > 0;
 
         let mut result = StringBuilder::with_capacity(9);
         result.push(write_depth(depth));
@@ -626,9 +634,16 @@ impl<'a, 'b> Page<'a, 'b> {
 
         result.push(rendered);
 
+        let mut child_had_content = false;
         if render_children {
+            let (child_container_depth, child_depth) = if increase_depth {
+                (depth + 1, depth + 2)
+            } else {
+                (depth, depth)
+            };
+
             result.push("\n");
-            result.push(write_depth(depth + 1));
+            result.push(write_depth(child_container_depth));
 
             let element = match view_type {
                 ViewType::Document => "<ul class=\"list-document\">\n",
@@ -641,34 +656,24 @@ impl<'a, 'b> Page<'a, 'b> {
             let mut children = block
                 .children
                 .iter()
-                .filter_map(|id| {
-                    let render = match (depth, self.include_scope) {
-                        (0, IncludeScope::Full) => true,
-                        (0, IncludeScope::Partial(p)) => p.contains(id),
-                        (_, _) => true,
-                    };
-
-                    if render {
-                        self.graph.blocks.get(id)
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|id| self.graph.blocks.get(id))
                 .collect::<Vec<_>>();
             if self.graph.block_explicit_ordering {
                 children.sort_by_key(|b| b.order);
             }
 
             for child in &children {
-                result.push(self.render_block_and_children(
-                    child,
-                    seen_hashtags,
-                    view_type,
-                    depth + 2,
-                )?);
+                let child_content =
+                    self.render_block_and_children(child, seen_hashtags, view_type, child_depth)?;
+
+                if !child_had_content && !child_content.is_blank() {
+                    child_had_content = true;
+                }
+
+                result.push(child_content);
             }
 
-            result.push(write_depth(depth + 1));
+            result.push(write_depth(child_container_depth));
 
             let element = match view_type {
                 ViewType::Document => "</ul>\n",
@@ -677,6 +682,10 @@ impl<'a, 'b> Page<'a, 'b> {
                 ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
             };
             result.push(element);
+        }
+
+        if block.include_type == BlockInclude::IfChildrenPresent && !child_had_content {
+            return Ok(StringBuilder::Empty);
         }
 
         if render_li {

@@ -5,7 +5,7 @@ use crate::{
 
 use ahash::HashMap;
 use eyre::{eyre, Result};
-use rhai::{plugin::*, Scope, AST};
+use rhai::{def_package, packages::StandardPackage, plugin::*, Scope, AST};
 use smallvec::smallvec;
 use std::sync::{Arc, Mutex};
 
@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// exclude_block(block_id) -- If rendering this page, exclude this block and its children.
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub enum AllowEmbed {
     #[default]
     Default,
@@ -130,27 +130,32 @@ fn walk_block(
     depth: i64,
     block_id: usize,
     callback: &rhai::FnPtr,
-) {
-    let mut graph = page.graph.lock().unwrap();
-    let block = graph.blocks.get_mut(&block_id).unwrap();
-    let block_config = BlockConfig::from_block(block);
+) -> Result<()> {
+    let block_config = {
+        let mut graph = page.graph.lock().unwrap();
+        let block = graph.blocks.get_mut(&block_id).unwrap();
+        BlockConfig::from_block(block)
+    };
 
     let mut d = Dynamic::from(block_config).into_shared();
-    callback
-        .call_raw(context, Some(&mut d), [depth.into()])
-        .expect("calling block callback");
+    callback.call_raw(context, Some(&mut d), [depth.into()])?;
 
     let block_config = d.cast::<BlockConfig>();
+
+    let mut graph = page.graph.lock().unwrap();
+    let block = graph.blocks.get_mut(&block_id).unwrap();
     block_config.apply_to_block(block);
 
     let next_depth = depth + 1;
-    if next_depth < max_depth {
+    if next_depth <= max_depth {
         let children = block.children.clone();
         drop(graph);
         for child_id in children {
-            walk_block(context, page, max_depth, next_depth, child_id, callback);
+            walk_block(context, page, max_depth, next_depth, child_id, callback)?;
         }
     }
+
+    Ok(())
 }
 
 #[export_module]
@@ -158,13 +163,13 @@ pub mod rhai_block {
     pub type Block = BlockConfig;
 
     /// Get the text contents of the block.
-    #[rhai_fn(get = "string", pure)]
+    #[rhai_fn(get = "contents", pure)]
     pub fn get_string(block: &mut BlockConfig) -> String {
         block.string.to_string()
     }
 
     /// Set the text contents of the block.
-    #[rhai_fn(set = "string", pure)]
+    #[rhai_fn(set = "contents", pure)]
     pub fn set_string(block: &mut BlockConfig, value: String) {
         block.string = value;
         block.edited = true;
@@ -328,7 +333,7 @@ pub mod rhai_page {
             .get(&attr)
             .and_then(|v| v.get(0))
             .cloned()
-            .unwrap_or_else(String::new)
+            .unwrap_or_default()
     }
 
     #[rhai_fn(global)]
@@ -346,7 +351,7 @@ pub mod rhai_page {
         page: &mut Page,
         max_depth: i64,
         callback: FnPtr,
-    ) {
+    ) -> std::result::Result<(), String> {
         super::walk_block(
             &context,
             page,
@@ -354,7 +359,8 @@ pub mod rhai_page {
             0,
             page.config.root_block,
             &callback,
-        );
+        )
+        .map_err(|e| format!("{e:?}"))
     }
 
     #[rhai_fn(global)]
@@ -369,26 +375,25 @@ pub mod rhai_page {
 }
 
 create_enum!(allow_embed_module : super::AllowEmbed => Default, Yes, No);
-create_enum!(block_include_module : super::BlockInclude => AndChildren, OnlyChildren, JustBlock, Exclude);
+create_enum!(block_include_module : super::BlockInclude => AndChildren, OnlyChildren, JustBlock, Exclude, IfChildrenPresent);
 create_enum!(view_type_module : crate::graph::ViewType => Inherit, Bullet, Numbered, Document);
 
-pub fn create_engine() -> Engine {
-    let mut engine = Engine::new();
-
-    engine
-        .register_global_module(exported_module!(rhai_page).into())
-        .register_global_module(exported_module!(rhai_block).into())
-        .register_type_with_name::<AllowEmbed>("AllowEmbed")
-        .register_static_module("AllowEmbed", exported_module!(allow_embed_module).into())
-        .register_type_with_name::<BlockInclude>("BlockInclude")
-        .register_static_module(
-            "BlockInclude",
-            exported_module!(block_include_module).into(),
-        )
-        .register_type_with_name::<ViewType>("ViewType")
-        .register_static_module("ViewType", exported_module!(view_type_module).into());
-
-    engine
+def_package! {
+    pub ParsePackage(module) : StandardPackage {
+        combine_with_exported_module!(module, "page", rhai_page);
+        combine_with_exported_module!(module, "block", rhai_block);
+    } |> |engine| {
+        engine
+            .register_type_with_name::<AllowEmbed>("AllowEmbed")
+            .register_static_module("AllowEmbed", exported_module!(allow_embed_module).into())
+            .register_type_with_name::<BlockInclude>("BlockInclude")
+            .register_static_module(
+                "BlockInclude",
+                exported_module!(block_include_module).into(),
+            )
+            .register_type_with_name::<ViewType>("ViewType")
+            .register_static_module("ViewType", exported_module!(view_type_module).into());
+    }
 }
 
 pub fn run_script_on_page(

@@ -19,10 +19,7 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::{
-    config::DailyNotes,
-    graph::{AttrList, Block, BlockInclude, Graph, ViewType},
-};
+use crate::graph::{AttrList, Block, BlockInclude, Graph, ViewType};
 
 use self::blocks::LogseqRawBlock;
 
@@ -66,7 +63,7 @@ impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
     // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
     // to keep the LogseqGraph around.
-    pub fn build(path: PathBuf, include_journals: DailyNotes) -> Result<Graph> {
+    pub fn build(path: PathBuf) -> Result<Graph> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
             graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
@@ -75,12 +72,8 @@ impl LogseqGraph {
         };
 
         lsgraph.read_page_metadata()?;
-        if include_journals != DailyNotes::Exclusive {
-            lsgraph.read_page_directory("pages", false)?;
-        }
-        if include_journals != DailyNotes::Deny {
-            lsgraph.read_page_directory("journals", true)?;
-        }
+        lsgraph.read_page_directory("pages", false)?;
+        lsgraph.read_page_directory("journals", true)?;
 
         Ok(lsgraph.graph)
     }
@@ -184,7 +177,7 @@ impl LogseqGraph {
         let page_block = Block {
             id: page.base_id,
             uid,
-            include_type: BlockInclude::default(),
+            include_type: BlockInclude::IfChildrenPresent,
             containing_page: page.base_id,
             page_title: title,
             is_journal,
