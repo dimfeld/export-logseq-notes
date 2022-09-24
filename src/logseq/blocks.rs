@@ -3,12 +3,14 @@ use std::io::BufRead;
 use eyre::{eyre, Result};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while},
+    bytes::complete::{tag, take_while, take_while1},
     character::complete::multispace0,
     combinator::{all_consuming, map, opt},
+    multi::separated_list0,
     sequence::{preceded, terminated, tuple},
     IResult,
 };
+use regex::Regex;
 use smallvec::SmallVec;
 
 use crate::graph::{AttrList, ViewType};
@@ -23,6 +25,7 @@ struct Line<'a> {
     new_block: bool,
     attr_name: String,
     attr_values: AttrList,
+    tags: AttrList,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -33,6 +36,7 @@ pub struct LogseqRawBlock {
     pub contents: String,
     pub view_type: ViewType,
     pub indent: u32,
+    pub tags: AttrList,
 }
 
 pub fn parse_raw_blocks(
@@ -87,6 +91,8 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
 
     let mut all_done = false;
 
+    let mut tags = AttrList::new();
+
     loop {
         let line_read = lines.next();
         if let Some(line) = line_read {
@@ -110,6 +116,10 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
 
                     if parsed.header > 0 {
                         header = parsed.header;
+                    }
+
+                    for tag in parsed.tags {
+                        tags.push(tag);
                     }
 
                     // Extract special attributes and omit them from the output
@@ -148,6 +158,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
         view_type,
         indent,
         contents: line_contents.join("\n"),
+        tags,
     };
 
     Ok(RawBlockOutput::Block(block_contents))
@@ -157,6 +168,10 @@ fn count_repeated_char(input: &str, match_char: char) -> IResult<&str, u32> {
     map(take_while(|c| c == match_char), |result: &str| {
         result.chars().count() as u32
     })(input)
+}
+
+fn space_between_tags(input: &str) -> IResult<&str, ()> {
+    map(take_while1(|c| c != '#'), |_| ())(input)
 }
 
 fn evaluate_line(line: &str) -> Result<Option<Line<'_>>> {
@@ -186,6 +201,18 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>> {
     ))(line)
     .map_err(|e| eyre!("{}", e))?;
 
+    let (_, (_, tags)) = tuple((
+        opt(space_between_tags),
+        separated_list0(space_between_tags, crate::parse_string::hashtag),
+    ))(rest)
+    .map_err(|e| eyre!("{}", e))?;
+
+    let tags: AttrList = tags
+        .into_iter()
+        .filter(|(t, _)| t.chars().any(|c| c != '#'))
+        .map(|(t, _)| t.to_string())
+        .collect();
+
     let (attr_name, attr_values) = match parse_attr_line("::", rest) {
         Ok(Some(v)) => v,
         _ => (String::new(), SmallVec::new()),
@@ -198,6 +225,7 @@ fn evaluate_line(line: &str) -> Result<Option<Line<'_>>> {
         header,
         attr_name,
         attr_values,
+        tags,
     }))
 }
 
@@ -227,6 +255,7 @@ mod test {
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -243,6 +272,7 @@ mod test {
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -259,6 +289,7 @@ mod test {
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -275,6 +306,7 @@ mod test {
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -291,6 +323,7 @@ mod test {
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -307,6 +340,58 @@ mod test {
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
+                }
+            );
+        }
+
+        #[test]
+        fn tags() {
+            let input = "- abc #def";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc #def",
+                    indent: 0,
+                    header: 0,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: SmallVec::new(),
+                    tags: smallvec!["def".to_string()],
+                }
+            );
+        }
+
+        #[test]
+        fn tags_at_start() {
+            let input = "- #def abc";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "#def abc",
+                    indent: 0,
+                    header: 0,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: SmallVec::new(),
+                    tags: smallvec!["def".to_string()],
+                }
+            );
+        }
+
+        #[test]
+        fn multiple_tags() {
+            let input = "- abc and #def and #ghi #jkl";
+            assert_eq!(
+                evaluate_line(input).unwrap().unwrap(),
+                Line {
+                    contents: "abc and #def and #ghi #jkl",
+                    indent: 0,
+                    header: 0,
+                    new_block: true,
+                    attr_name: String::new(),
+                    attr_values: SmallVec::new(),
+                    tags: smallvec!["def".to_string(), "ghi".to_string(), "jkl".to_string()],
                 }
             );
         }
@@ -323,6 +408,7 @@ mod test {
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -339,6 +425,7 @@ mod test {
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -355,6 +442,7 @@ mod test {
                     new_block: true,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -371,6 +459,7 @@ mod test {
                     new_block: false,
                     attr_name: String::new(),
                     attr_values: SmallVec::new(),
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -386,7 +475,8 @@ mod test {
                     header: 0,
                     new_block: true,
                     attr_name: String::from("abc"),
-                    attr_values: smallvec![String::from("def")]
+                    attr_values: smallvec![String::from("def")],
+                    tags: SmallVec::new(),
                 }
             );
         }
@@ -402,7 +492,8 @@ mod test {
                     header: 0,
                     new_block: false,
                     attr_name: String::from("abc"),
-                    attr_values: smallvec![String::from("def")]
+                    attr_values: smallvec![String::from("def")],
+                    tags: SmallVec::new(),
                 }
             );
         }

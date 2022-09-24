@@ -97,6 +97,7 @@ pub struct BlockConfig {
     pub heading: usize,
     pub view_type: ViewType,
     pub include_type: BlockInclude,
+    pub tags: AttrList,
 
     edited: bool,
 }
@@ -109,6 +110,7 @@ impl BlockConfig {
             heading: block.heading,
             view_type: block.view_type,
             include_type: block.include_type,
+            tags: block.tags.clone(),
             edited: false,
         }
     }
@@ -119,6 +121,7 @@ impl BlockConfig {
             block.heading = self.heading;
             block.view_type = self.view_type;
             block.include_type = self.include_type;
+            block.tags = self.tags
         }
     }
 }
@@ -209,6 +212,21 @@ pub mod rhai_block {
     #[rhai_fn(set = "include")]
     pub fn set_include(block: &mut BlockConfig, include: BlockInclude) {
         block.include_type = include;
+        block.edited = true;
+    }
+
+    #[rhai_fn(get = "tags", pure)]
+    pub fn get_tags(block: &mut BlockConfig) -> Vec<Dynamic> {
+        block
+            .tags
+            .iter()
+            .map(|s| Dynamic::from(s.to_string()))
+            .collect()
+    }
+
+    #[rhai_fn(set = "tags")]
+    pub fn set_tags(block: &mut BlockConfig, tags: Vec<String>) {
+        block.tags = tags.into();
         block.edited = true;
     }
 }
@@ -312,8 +330,12 @@ pub mod rhai_page {
     }
 
     #[rhai_fn(get = "tag", pure)]
-    pub fn get_tags(page: &mut Page) -> Vec<String> {
-        page.config.tags.iter().cloned().collect()
+    pub fn get_tags(page: &mut Page) -> Vec<Dynamic> {
+        page.config
+            .tags
+            .iter()
+            .map(|s| Dynamic::from(s.to_string()))
+            .collect()
     }
 
     #[rhai_fn(global)]
@@ -337,11 +359,11 @@ pub mod rhai_page {
     }
 
     #[rhai_fn(global)]
-    pub fn get_attr(page: &mut Page, attr: String) -> Vec<String> {
+    pub fn get_attr(page: &mut Page, attr: String) -> Vec<Dynamic> {
         page.config
             .attrs
             .get(&attr)
-            .map(|l| l.iter().cloned().collect())
+            .map(|l| l.iter().map(|s| Dynamic::from(s.to_string())).collect())
             .unwrap_or_else(Vec::new)
     }
 

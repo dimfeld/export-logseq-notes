@@ -213,7 +213,7 @@ impl LogseqGraph {
                 parent: Some(parent_id),
                 children: SmallVec::new(),
                 attrs: HashMap::default(), // this_input.attrs,
-                tags: SmallVec::new(),
+                tags: input.tags,
                 create_time: 0,
                 edit_time: 0,
                 view_type: input.view_type,

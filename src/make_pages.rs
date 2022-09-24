@@ -161,11 +161,11 @@ pub fn make_pages_from_script(
 
     let handlebars = templates.into_inner();
 
-    let count = pages
+    let results = pages
         .into_par_iter()
         .map(|(page_config, slug)| {
             if !page_config.include {
-                return Ok(0);
+                return Ok(None);
             }
 
             let filename = if page_config.path_name.is_empty() {
@@ -198,7 +198,7 @@ pub fn make_pages_from_script(
             let (rendered, hashtags) = page.render()?;
 
             if rendered.is_empty() {
-                return Ok(0);
+                return Ok(None);
             }
 
             let hashtags = if config.use_all_hashtags {
@@ -264,12 +264,25 @@ pub fn make_pages_from_script(
 
             println!("Wrote: \"{final_title}\" to {slug}");
 
-            Ok::<_, eyre::Report>(1)
+            Ok::<_, eyre::Report>(Some((
+                output_path,
+                TitleAndUid {
+                    title: final_title.to_string(),
+                    uid: block.uid.clone(),
+                },
+            )))
         })
-        .try_fold(|| 0usize, |acc, x| x.map(|x| acc + x))
-        .try_reduce(|| 0usize, |acc, x| Ok(acc + x))?;
+        .filter_map(|p| p.transpose())
+        .collect::<Result<HashMap<_, _>>>()?;
 
-    Ok(count)
+    let manifest_path = config.output.join("manifest.json");
+    let mut manifest_writer = std::fs::File::create(&manifest_path)
+        .with_context(|| format!("Writing {}", manifest_path.to_string_lossy()))?;
+    serde_json::to_writer_pretty(&manifest_writer, &results)?;
+    manifest_writer.flush()?;
+    drop(manifest_writer);
+
+    Ok(results.len())
 }
 
 /*
