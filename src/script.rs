@@ -1,5 +1,5 @@
 use crate::{
-    graph::{AttrList, Block, BlockInclude, Graph, ViewType},
+    graph::{AttrList, Block, BlockInclude, Graph, ParsedPage, ViewType},
     make_pages::title_to_slug,
 };
 
@@ -7,7 +7,11 @@ use ahash::HashMap;
 use eyre::{eyre, Result};
 use rhai::{def_package, packages::StandardPackage, plugin::*, Scope, AST};
 use smallvec::smallvec;
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 ///
 /// set_path_base(path) -- Set the base output folder for this page
@@ -75,7 +79,7 @@ pub struct PageConfig {
 #[derive(Debug, Clone)]
 pub struct PageObject {
     pub config: PageConfig,
-    pub graph: Arc<Mutex<Graph>>,
+    pub page: Arc<Mutex<ParsedPage>>,
 }
 
 macro_rules! create_enum {
@@ -135,8 +139,8 @@ fn walk_block(
     callback: &rhai::FnPtr,
 ) -> Result<()> {
     let block_config = {
-        let mut graph = page.graph.lock().unwrap();
-        let block = graph.blocks.get_mut(&block_id).unwrap();
+        let p = page.page.lock().unwrap();
+        let block = p.blocks.get(&block_id).unwrap();
         BlockConfig::from_block(block)
     };
 
@@ -145,14 +149,14 @@ fn walk_block(
 
     let block_config = d.cast::<BlockConfig>();
 
-    let mut graph = page.graph.lock().unwrap();
-    let block = graph.blocks.get_mut(&block_id).unwrap();
+    let mut p = page.page.lock().unwrap();
+    let block = p.blocks.get_mut(&block_id).unwrap();
     block_config.apply_to_block(block);
 
     let next_depth = depth + 1;
     if next_depth <= max_depth {
         let children = block.children.clone();
-        drop(graph);
+        drop(p);
         for child_id in children {
             walk_block(context, page, max_depth, next_depth, child_id, callback)?;
         }
@@ -426,13 +430,14 @@ def_package! {
 pub fn run_script_on_page(
     engine: &mut Engine,
     ast: &AST,
-    graph: &Arc<Mutex<Graph>>,
-    block_id: usize,
-) -> Result<PageConfig> {
+    page: ParsedPage,
+) -> Result<(PageConfig, ParsedPage)> {
     let page_config = {
-        let g = graph.lock().unwrap();
-        let page = g.blocks.get(&block_id).expect("Block must exist");
-        let title = page.page_title.clone().expect("Page title must exist");
+        let page_block = page.blocks.get(&page.root_block).expect("Block must exist");
+        let title = page_block
+            .page_title
+            .clone()
+            .expect("Page title must exist");
 
         let slug = title_to_slug(&title);
 
@@ -444,17 +449,17 @@ pub fn run_script_on_page(
             url_name: slug,
             title,
             template: TemplateSelection::Default,
-            is_journal: page.is_journal,
-            attrs: page.attrs.clone(),
-            tags: page.tags.clone(),
+            is_journal: page_block.is_journal,
+            attrs: page_block.attrs.clone(),
+            tags: page_block.tags.clone(),
             allow_embedding: AllowEmbed::Default,
-            root_block: block_id,
+            root_block: page.root_block,
         }
     };
 
     let page_object = PageObject {
         config: page_config,
-        graph: graph.clone(),
+        page: Arc::new(Mutex::new(page)),
     };
 
     let dy = Dynamic::from(page_object).into_shared();
@@ -468,5 +473,11 @@ pub fn run_script_on_page(
     drop(scope);
     let page_object = dy.cast::<PageObject>();
 
-    Ok(page_object.config)
+    Ok((
+        page_object.config,
+        Arc::try_unwrap(page_object.page)
+            .unwrap()
+            .into_inner()
+            .unwrap(),
+    ))
 }

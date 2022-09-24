@@ -81,6 +81,12 @@ pub struct Block {
 }
 
 #[derive(Debug)]
+pub struct ParsedPage {
+    pub root_block: usize,
+    pub blocks: HashMap<usize, Block>,
+}
+
+#[derive(Debug)]
 pub struct Graph {
     pub blocks: HashMap<usize, Block>,
     pub blocks_by_uid: HashMap<String, usize>,
@@ -91,7 +97,6 @@ pub struct Graph {
     pub block_explicit_ordering: bool,
 
     pub content_style: ContentStyle,
-    pub tagged_blocks: HashMap<String, Vec<usize>>,
 }
 
 impl Graph {
@@ -100,7 +105,6 @@ impl Graph {
             blocks: HashMap::default(),
             blocks_by_uid: HashMap::default(),
             page_blocks: Vec::new(),
-            tagged_blocks: HashMap::default(),
             content_style,
             block_explicit_ordering,
         }
@@ -109,13 +113,6 @@ impl Graph {
     pub fn add_block(&mut self, block: Block) {
         if block.page_title.is_some() {
             self.page_blocks.push(block.id);
-        }
-
-        for tag in block.tags.iter() {
-            self.tagged_blocks
-                .entry(tag.clone())
-                .or_default()
-                .push(block.id);
         }
 
         if !block.uid.is_empty() {

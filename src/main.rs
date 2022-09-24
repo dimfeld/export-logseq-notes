@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 
     let highlighter = syntax_highlight::Highlighter::new(highlight_class_prefix);
 
-    let graph = match config.product {
+    let (content_style, explicit_ordering, parsed_pages) = match config.product {
         PkmProduct::Roam => {
             let mut f = File::open(&config.path)
                 .with_context(|| format!("Opening {}", config.path.display()))?;
@@ -58,7 +58,14 @@ fn main() -> Result<()> {
         PkmProduct::Logseq => logseq::LogseqGraph::build(config.path.clone())?,
     };
 
-    let page_count = make_pages_from_script(graph, templates, &highlighter, &config)?;
+    let page_count = make_pages_from_script(
+        parsed_pages,
+        content_style,
+        explicit_ordering,
+        templates,
+        &highlighter,
+        &config,
+    )?;
 
     println!("Wrote {page_count} pages");
 

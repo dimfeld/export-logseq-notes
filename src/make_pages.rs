@@ -1,6 +1,7 @@
 use crate::config::Config;
-use crate::graph::Graph;
+use crate::graph::{Graph, ParsedPage};
 use crate::page::{IdSlugUid, ManifestItem, Page, TitleSlugUid};
+use crate::parse_string::ContentStyle;
 use crate::script::{run_script_on_page, AllowEmbed, TemplateSelection};
 use crate::syntax_highlight;
 use ahash::{HashMap, HashSet};
@@ -48,13 +49,13 @@ fn create_path(page_base: &str, default_base: &str, filename: &str) -> String {
 }
 
 pub fn make_pages_from_script(
-    mut graph: Graph,
+    pages: Vec<ParsedPage>,
+    content_style: ContentStyle,
+    explicit_ordering: bool,
     mut templates: crate::template::DedupingTemplateRegistry,
     highlighter: &syntax_highlight::Highlighter,
     config: &Config,
 ) -> Result<usize> {
-    let page_list = std::mem::take(&mut graph.page_blocks);
-    let graph = Arc::new(std::sync::Mutex::new(graph));
     let package = crate::script::ParsePackage::new();
     let mut parse_engine = Engine::new_raw();
     package.register_into_engine(&mut parse_engine);
@@ -64,9 +65,9 @@ pub fn make_pages_from_script(
         .map_err(|e| eyre!("{e:?}"))
         .wrap_err("Parsing script")?;
 
-    let mut pages = page_list
-        .par_iter()
-        .map(|block_id| {
+    let mut pages = pages
+        .into_par_iter()
+        .map(|parsed_page| {
             let mut engine = Engine::new_raw();
 
             engine.on_print(|x| println!("script: {x}"));
@@ -76,25 +77,25 @@ pub fn make_pages_from_script(
 
             package.register_into_engine(&mut engine);
 
-            let page_config = run_script_on_page(&mut engine, &ast, &graph, *block_id)
-                .wrap_err("Running script")?;
+            let (page_config, page_blocks) =
+                run_script_on_page(&mut engine, &ast, parsed_page).wrap_err("Running script")?;
             let slug = create_path(
                 page_config.url_base.as_str(),
                 config.base_url.as_deref().unwrap_or(""),
                 page_config.url_name.as_str(),
             );
 
-            Ok::<_, eyre::Report>((page_config, slug))
+            Ok::<_, eyre::Report>((page_config, page_blocks, slug))
         })
         .filter(|result| match result {
-            Ok((page, _)) => page.include || page.allow_embedding == AllowEmbed::Yes,
+            Ok((page, _, _)) => page.include || page.allow_embedding == AllowEmbed::Yes,
             _ => true,
         })
         .collect::<Result<Vec<_>>>()?;
 
     let page_templates = pages
         .iter_mut()
-        .map(|(page, _)| {
+        .map(|(page, _, _)| {
             let template_key = match std::mem::take(&mut page.template) {
                 TemplateSelection::Default => {
                     if config.template.is_none() {
@@ -110,13 +111,9 @@ pub fn make_pages_from_script(
         })
         .collect::<Result<HashMap<_, _>>>()?;
 
-    let graph = Arc::try_unwrap(graph)
-        .expect("Pulling graph out or Arc")
-        .into_inner()
-        .expect("Pulling graph out of mutex");
     let pages_by_title = pages
         .iter()
-        .map(|(p, slug)| {
+        .map(|(p, blocks, slug)| {
             (
                 p.title.clone(),
                 IdSlugUid {
@@ -129,7 +126,7 @@ pub fn make_pages_from_script(
                         (false, AllowEmbed::No | AllowEmbed::Default) => false,
                     },
                     slug: slug.clone(),
-                    uid: graph.blocks.get(&p.root_block).unwrap().uid.clone(),
+                    uid: blocks.blocks.get(&p.root_block).unwrap().uid.clone(),
                 },
             )
         })
@@ -161,9 +158,17 @@ pub fn make_pages_from_script(
 
     let handlebars = templates.into_inner();
 
+    let mut graph = Graph::new(content_style, explicit_ordering);
+    for (_, blocks, _) in pages.iter_mut() {
+        let blocks = std::mem::take(&mut blocks.blocks);
+        for (_, block) in blocks {
+            graph.add_block(block);
+        }
+    }
+
     let results = pages
         .into_par_iter()
-        .map(|(page_config, slug)| {
+        .map(|(page_config, blocks, slug)| {
             if !page_config.include {
                 return Ok(None);
             }

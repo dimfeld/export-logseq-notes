@@ -551,18 +551,19 @@ impl<'a, 'b> Page<'a, 'b> {
         inherited_view_type: ViewType,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let (rendered, render_li, render_children) = match block.include_type {
-            BlockInclude::Exclude => return Ok(StringBuilder::Empty),
-            BlockInclude::JustBlock => {
-                let (rendered, _) = self.render_line(block, seen_hashtags)?;
-                (rendered, true, false)
-            }
-            BlockInclude::AndChildren | BlockInclude::IfChildrenPresent => {
-                let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
-                (rendered, true, render_children)
-            }
-            BlockInclude::OnlyChildren => (StringBuilder::Empty, false, true),
-        };
+        let (rendered, render_li, render_child_container, render_children) =
+            match block.include_type {
+                BlockInclude::Exclude => return Ok(StringBuilder::Empty),
+                BlockInclude::JustBlock => {
+                    let (rendered, _) = self.render_line(block, seen_hashtags)?;
+                    (rendered, true, false, false)
+                }
+                BlockInclude::AndChildren | BlockInclude::IfChildrenPresent => {
+                    let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
+                    (rendered, true, true, render_children)
+                }
+                BlockInclude::OnlyChildren => (StringBuilder::Empty, false, false, true),
+            };
 
         let increase_depth = block.include_type != BlockInclude::OnlyChildren;
         let render_children = render_children && !block.children.is_empty();
@@ -602,15 +603,17 @@ impl<'a, 'b> Page<'a, 'b> {
             };
 
             result.push("\n");
-            result.push(write_depth(child_container_depth));
 
-            let element = match view_type {
-                ViewType::Document => "<ul class=\"list-document\">\n",
-                ViewType::Bullet => "<ul class=\"list-bullet\">\n",
-                ViewType::Numbered => "<ol class=\"list-numbered\">\n",
-                ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
-            };
-            result.push(element);
+            if render_child_container {
+                result.push(write_depth(child_container_depth));
+                let element = match view_type {
+                    ViewType::Document => "<ul class=\"list-document\">\n",
+                    ViewType::Bullet => "<ul class=\"list-bullet\">\n",
+                    ViewType::Numbered => "<ol class=\"list-numbered\">\n",
+                    ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
+                };
+                result.push(element);
+            }
 
             let mut children = block
                 .children
@@ -632,15 +635,17 @@ impl<'a, 'b> Page<'a, 'b> {
                 result.push(child_content);
             }
 
-            result.push(write_depth(child_container_depth));
+            if render_child_container {
+                result.push(write_depth(child_container_depth));
 
-            let element = match view_type {
-                ViewType::Document => "</ul>\n",
-                ViewType::Bullet => "</ul>\n",
-                ViewType::Numbered => "</ol>\n",
-                ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
-            };
-            result.push(element);
+                let element = match view_type {
+                    ViewType::Document => "</ul>\n",
+                    ViewType::Bullet => "</ul>\n",
+                    ViewType::Numbered => "</ol>\n",
+                    ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
+                };
+                result.push(element);
+            }
         }
 
         if block.include_type == BlockInclude::IfChildrenPresent && !child_had_content {

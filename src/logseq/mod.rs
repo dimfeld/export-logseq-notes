@@ -11,7 +11,7 @@ use std::{
     str::FromStr,
 };
 
-use ahash::HashMap;
+use ahash::{HashMap, HashMapExt};
 use edn_rs::Edn;
 use eyre::{eyre, Result, WrapErr};
 use itertools::{put_back, PutBack};
@@ -19,7 +19,10 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::graph::{AttrList, Block, BlockInclude, Graph, ViewType};
+use crate::{
+    graph::{AttrList, Block, BlockInclude, Graph, ParsedPage, ViewType},
+    parse_string::ContentStyle,
+};
 
 use self::blocks::LogseqRawBlock;
 
@@ -52,7 +55,6 @@ pub struct PageMetadata {
 pub struct LogseqGraph {
     next_id: usize,
     root: PathBuf,
-    graph: Graph,
 
     page_metadata: HashMap<String, PageMetadata>,
 }
@@ -63,19 +65,19 @@ impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
     // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
     // to keep the LogseqGraph around.
-    pub fn build(path: PathBuf) -> Result<Graph> {
+    pub fn build(path: PathBuf) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
-            graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
             root: path,
             page_metadata: HashMap::default(),
         };
 
         lsgraph.read_page_metadata()?;
-        lsgraph.read_page_directory("pages", false)?;
-        lsgraph.read_page_directory("journals", true)?;
+        let mut pages = lsgraph.read_page_directory("pages", false)?;
+        let journals = lsgraph.read_page_directory("journals", true)?;
 
-        Ok(lsgraph.graph)
+        pages.extend(journals.into_iter());
+        Ok((ContentStyle::Logseq, false, pages))
     }
 
     fn read_page_metadata(&mut self) -> Result<()> {
@@ -121,7 +123,7 @@ impl LogseqGraph {
         Ok(())
     }
 
-    fn read_page_directory(&mut self, name: &str, is_journal: bool) -> Result<()> {
+    fn read_page_directory(&mut self, name: &str, is_journal: bool) -> Result<Vec<ParsedPage>> {
         let dir = self.root.join(name);
         let files = std::fs::read_dir(&dir)
             .with_context(|| format!("{dir:?}"))?
@@ -139,19 +141,15 @@ impl LogseqGraph {
             self.next_id += page.blocks.len() + 1;
         }
 
-        let blocks = raw_pages
+        let pages = raw_pages
             .into_par_iter()
-            .flat_map(|page| self.process_raw_page(page, is_journal))
+            .map(|page| self.process_raw_page(page, is_journal))
             .collect::<Vec<_>>();
 
-        for block in blocks {
-            self.graph.add_block(block);
-        }
-
-        Ok(())
+        Ok(pages)
     }
 
-    fn process_raw_page(&self, mut page: LogseqRawPage, is_journal: bool) -> Vec<Block> {
+    fn process_raw_page(&self, mut page: LogseqRawPage, is_journal: bool) -> ParsedPage {
         let title = page
             .attrs
             .remove("title")
@@ -194,8 +192,9 @@ impl LogseqGraph {
             order: 0,
         };
 
-        let mut blocks = Vec::with_capacity(page.blocks.len() + 1);
-        blocks.push(page_block);
+        let mut blocks = HashMap::with_capacity(page.blocks.len() + 1);
+        let root_block = page_block.id;
+        blocks.insert(page_block.id, page_block);
 
         for (i, input) in page.blocks.into_iter().enumerate() {
             // The parent is either the index in the page, or it's the page block itself.
@@ -203,7 +202,7 @@ impl LogseqGraph {
             let parent_id = parent_block_idx + page.base_id;
 
             let this_id = page.base_id + i + 1;
-            blocks[parent_block_idx].children.push(this_id);
+            blocks.get_mut(&parent_id).unwrap().children.push(this_id);
 
             let block = Block {
                 id: this_id,
@@ -224,10 +223,10 @@ impl LogseqGraph {
                 containing_page: page.base_id,
             };
 
-            blocks.push(block);
+            blocks.insert(block.id, block);
         }
 
-        blocks
+        ParsedPage { root_block, blocks }
     }
 }
 

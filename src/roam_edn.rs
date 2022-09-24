@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use ahash::{HashMap, HashMapExt};
 use edn_rs::{Edn, EdnError};
 use eyre::Result;
 use smallvec::SmallVec;
@@ -8,7 +8,7 @@ use std::mem;
 use std::str::FromStr;
 
 use crate::{
-    graph::{Block, BlockInclude, Graph, ViewType},
+    graph::{Block, BlockInclude, Graph, ParsedPage, ViewType},
     parse_string::ContentStyle,
 };
 
@@ -371,9 +371,10 @@ impl RoamGraph {
     }
 }
 
-pub fn graph_from_roam_edn(path: &str) -> Result<Graph> {
+pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
     let roam_graph = RoamGraph::from_edn(path)?;
-    let mut graph = Graph::new(ContentStyle::Roam, true);
+
+    let mut blocks = Vec::with_capacity(roam_graph.blocks.len());
 
     for roam_block in roam_graph.blocks.values() {
         let tags = roam_block
@@ -430,8 +431,23 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph> {
             view_type,
         };
 
-        graph.add_block(block);
+        blocks.push(block);
     }
 
-    Ok(graph)
+    let mut pages: HashMap<usize, ParsedPage> = HashMap::new();
+
+    for block in blocks {
+        let p = pages
+            .entry(block.containing_page)
+            .or_insert_with(|| ParsedPage {
+                root_block: block.containing_page,
+                blocks: HashMap::default(),
+            });
+
+        p.blocks.insert(block.id, block);
+    }
+
+    let page_list = pages.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
+
+    Ok((ContentStyle::Roam, true, page_list))
 }
