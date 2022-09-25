@@ -172,6 +172,22 @@ impl LogseqGraph {
             .map(|t| t.to_lowercase())
             .and_then(|t| self.page_metadata.get(&t));
 
+        let default_date = if is_journal {
+            let mut i = title.as_deref().unwrap_or_default().splitn(3, '-');
+            let y = i.next().map(|x| x.parse::<i32>());
+            let m = i.next().map(|x| x.parse::<u32>());
+            let d = i.next().map(|x| x.parse::<u32>());
+
+            match (y, m, d) {
+                (Some(Ok(y)), Some(Ok(m)), Some(Ok(d))) => chrono::NaiveDate::from_ymd_opt(y, m, d)
+                    .map(|d| d.and_hms(0, 0, 0).timestamp_millis() as usize)
+                    .unwrap_or_default(),
+                _ => 0,
+            }
+        } else {
+            0
+        };
+
         let page_block = Block {
             id: page.base_id,
             uid,
@@ -182,8 +198,8 @@ impl LogseqGraph {
             string: String::new(),
             heading: 0,
             view_type,
-            edit_time: meta.map(|m| m.edited_time).unwrap_or_default(),
-            create_time: meta.map(|m| m.created_time).unwrap_or_default(),
+            edit_time: meta.map(|m| m.edited_time).unwrap_or(default_date),
+            create_time: meta.map(|m| m.created_time).unwrap_or(default_date),
             children: SmallVec::new(),
 
             tags,
