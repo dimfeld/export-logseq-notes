@@ -1,39 +1,36 @@
 use std::cell::Cell;
 
 use crate::config::Config;
-use crate::graph::{Block, Graph, ViewType};
+use crate::graph::{Block, BlockInclude, Graph, ViewType};
 use crate::html;
-use crate::links;
 use crate::parse_string::{parse, Expression};
 use crate::string_builder::StringBuilder;
 use crate::syntax_highlight;
-use anyhow::{anyhow, Context, Result};
-use fxhash::{FxHashMap, FxHashSet};
+use ahash::{HashMap, HashSet};
+use eyre::{eyre, Result, WrapErr};
 use serde::Serialize;
-use smallvec::SmallVec;
 
 pub struct TitleSlugUid {
     pub title: String,
     pub slug: String,
     pub uid: String,
+    pub include: bool,
+    pub allow_embed: bool,
 }
 
 pub struct IdSlugUid {
     pub id: usize,
     pub slug: String,
     pub uid: String,
+    pub include: bool,
+    pub allow_embed: bool,
 }
 
 #[derive(Serialize)]
-pub struct TitleAndUid {
+pub struct ManifestItem {
+    pub slug: String,
     pub title: String,
     pub uid: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum IncludeScope {
-    Full,
-    Partial(SmallVec<[usize; 4]>),
 }
 
 pub struct Page<'a, 'b> {
@@ -43,17 +40,11 @@ pub struct Page<'a, 'b> {
 
     pub latest_found_edit_time: Cell<usize>,
 
-    pub filter_tags: &'a [&'a str],
     pub graph: &'a Graph,
     pub config: &'a Config,
-    pub pages_by_title: &'a FxHashMap<String, IdSlugUid>,
-    pub included_pages_by_title: &'a FxHashMap<String, (&'a IdSlugUid, IncludeScope)>,
-    pub included_pages_by_id: &'a FxHashMap<usize, TitleSlugUid>,
-    pub omitted_attributes: &'a FxHashSet<&'a str>,
-
-    pub include_scope: &'a IncludeScope,
-    pub include_blocks_with_tags: &'a Vec<String>,
-    pub include_blocks_with_prefix: &'a Vec<String>,
+    pub pages_by_title: &'a HashMap<String, IdSlugUid>,
+    pub pages_by_id: &'a HashMap<usize, TitleSlugUid>,
+    pub omitted_attributes: &'a HashSet<&'a str>,
     pub highlighter: &'b syntax_highlight::Highlighter,
 }
 
@@ -71,14 +62,14 @@ fn render_opening_tag(tag: &str, class: &str) -> String {
 
 impl<'a, 'b> Page<'a, 'b> {
     fn link_if_allowed(&self, s: &'a str, omit_unexported_links: bool) -> StringBuilder<'a> {
-        self.included_pages_by_title
+        self.pages_by_title
             .get(s)
-            .map(|(IdSlugUid { slug, .. }, _)| {
-                let url = links::link_path(self.slug, slug, self.config.base_url.as_deref());
+            .filter(|p| p.include)
+            .map(|IdSlugUid { slug, .. }| {
                 StringBuilder::from(format!(
                     r##"<a href="{slug}">{title}</a>"##,
                     title = html::escape(s),
-                    slug = html::escape(url.as_ref())
+                    slug = html::escape(slug)
                 ))
             })
             .unwrap_or_else(|| {
@@ -94,25 +85,24 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         containing_block: &'a Block,
         s: &'a str,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         let block = self.graph.block_from_uid(s);
         match block {
             Some(block) => {
                 self.render_line_without_header(block, seen_hashtags)
                     .map(|(result, _)| {
-                        match self.included_pages_by_id.get(&block.containing_page) {
+                        match self
+                            .pages_by_id
+                            .get(&block.containing_page)
+                            .filter(|p| p.include)
+                        {
                             Some(page) => {
                                 // When the referenced page is exported, make this a link to the block.
-                                let url = links::link_path(
-                                    self.slug,
-                                    &page.slug,
-                                    self.config.base_url.as_deref(),
-                                );
                                 let linked = StringBuilder::Vec(vec![
                                     StringBuilder::from(format!(
                                         r##"<a class="block-ref" href="{page}#{block}">"##,
-                                        page = url,
+                                        page = &page.slug,
                                         block = block.uid
                                     )),
                                     result,
@@ -128,7 +118,7 @@ impl<'a, 'b> Page<'a, 'b> {
             None => {
                 // Block ref syntax can also be expandable text. So if we don't match on a block then just render it.
                 parse(self.graph.content_style, s)
-                    .map_err(|e| anyhow!("Parse Error: {}", e))
+                    .map_err(|e| eyre!("Parse Error: {}", e))
                     .and_then(|expressions| {
                         self.render_expressions(containing_block, expressions, seen_hashtags, false)
                     })
@@ -138,11 +128,6 @@ impl<'a, 'b> Page<'a, 'b> {
     }
 
     fn hashtag(&self, s: &'a str, dot: bool, omit_unexported_links: bool) -> StringBuilder<'a> {
-        if self.filter_tags.contains(&s) || self.omitted_attributes.contains(&s) {
-            // Don't render the primary export tags
-            return StringBuilder::Empty;
-        }
-
         let anchor = self.link_if_allowed(s, omit_unexported_links);
         if dot && !anchor.is_empty() {
             StringBuilder::Vec(vec![
@@ -158,22 +143,27 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_block_embed(
         &self,
         s: &str,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<StringBuilder<'a>> {
         self.graph
             .block_from_uid(s)
             .map(|block| {
-                self.render_block_and_children(block, seen_hashtags, 0)
-                    .map(|rendered| {
-                        StringBuilder::Vec(vec![
-                            StringBuilder::from(render_opening_tag(
-                                "div",
-                                self.config.class_block_embed.as_str(),
-                            )),
-                            rendered,
-                            StringBuilder::from("</div>"),
-                        ])
-                    })
+                self.render_block_and_children(
+                    block,
+                    seen_hashtags,
+                    ViewType::default_view_type(),
+                    0,
+                )
+                .map(|rendered| {
+                    StringBuilder::Vec(vec![
+                        StringBuilder::from(render_opening_tag(
+                            "div",
+                            self.config.class_block_embed.as_str(),
+                        )),
+                        rendered,
+                        StringBuilder::from("</div>"),
+                    ])
+                })
             })
             .unwrap_or(Ok(StringBuilder::Empty))
     }
@@ -182,7 +172,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         row: Vec<StringBuilder<'a>>,
         id: usize,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Vec<Vec<StringBuilder<'a>>> {
         self.graph
             .blocks
@@ -213,7 +203,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_table(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> StringBuilder<'a> {
         let rows = block
             .children
@@ -243,7 +233,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         s: &'a str,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> (StringBuilder<'a>, bool, bool) {
         let (value, render_children) = match s {
             "table" => (self.render_table(block, seen_hashtags), false),
@@ -268,7 +258,7 @@ impl<'a, 'b> Page<'a, 'b> {
         tag: &'a str,
         class: &'a str,
         e: Vec<Expression<'a>>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         self.render_expressions(block, e, seen_hashtags, false)
             .map(|(s, rc)| {
@@ -288,7 +278,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         e: Vec<Expression<'a>>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let num_exprs = e.len();
@@ -321,9 +311,9 @@ impl<'a, 'b> Page<'a, 'b> {
         block: &'a Block,
         name: &'a str,
         contents: Vec<Expression<'a>>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
-        if self.filter_tags.contains(&name) || self.omitted_attributes.get(name).is_some() {
+        if self.omitted_attributes.get(name).is_some() {
             return Ok((StringBuilder::Empty, false, true));
         }
 
@@ -349,7 +339,7 @@ impl<'a, 'b> Page<'a, 'b> {
         &self,
         block: &'a Block,
         e: Expression<'a>,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         let rendered = match e {
@@ -455,65 +445,42 @@ impl<'a, 'b> Page<'a, 'b> {
 
                 (tag, true, true)
             }
-            Expression::BlockEmbed(s) => {
-                // let containing_page = self
-                //     .graph
-                //     .blocks
-                //     .get(&block.containing_page)
-                //     .and_then(|b| b.page_title.as_ref());
-                // let referenced_page = self
-                //     .graph
-                //     .blocks_by_uid
-                //     .get(s)
-                //     .and_then(|id| self.graph.blocks.get(id))
-                //     .and_then(|block| self.graph.blocks.get(&block.containing_page))
-                //     .and_then(|b| b.page_title.as_ref());
-                // println!("Page {containing_page:?} embedded block {s} in {referenced_page:?}");
-
-                (self.render_block_embed(s, seen_hashtags)?, true, true)
-            }
+            Expression::BlockEmbed(s) => (self.render_block_embed(s, seen_hashtags)?, true, true),
             Expression::PageEmbed(s) => {
-                let page = if self.config.include_all_page_embeds {
-                    self.pages_by_title.get(s)
-                } else {
-                    self.included_pages_by_title.get(s).map(|s| s.0)
-                };
-
-                // let containing_page = self
-                //     .graph
-                //     .blocks
-                //     .get(&block.containing_page)
-                //     .and_then(|b| b.page_title.as_ref());
-                // println!("Page {containing_page:?} embedded page {s}");
+                let page = self.pages_by_title.get(s).filter(|p| p.allow_embed);
 
                 let result = page
                     .map(|IdSlugUid { id: block_id, .. }| {
                         let block = self.graph.blocks.get(block_id).unwrap();
-                        self.render_block_and_children(block, seen_hashtags, 0).map(
-                            |embedded_page| {
-                                StringBuilder::Vec(vec![
-                                    render_opening_tag(
-                                        "div",
-                                        self.config.class_page_embed_container.as_str(),
-                                    )
-                                    .into(),
-                                    render_opening_tag(
-                                        "div",
-                                        self.config.class_page_embed_title.as_str(),
-                                    )
-                                    .into(),
-                                    s.into(),
-                                    "</div>".into(),
-                                    render_opening_tag(
-                                        "div",
-                                        self.config.class_page_embed_content.as_str(),
-                                    )
-                                    .into(),
-                                    embedded_page,
-                                    "</div>\n</div>".into(),
-                                ])
-                            },
+                        self.render_block_and_children(
+                            block,
+                            seen_hashtags,
+                            ViewType::default_view_type(),
+                            0,
                         )
+                        .map(|embedded_page| {
+                            StringBuilder::Vec(vec![
+                                render_opening_tag(
+                                    "div",
+                                    self.config.class_page_embed_container.as_str(),
+                                )
+                                .into(),
+                                render_opening_tag(
+                                    "div",
+                                    self.config.class_page_embed_title.as_str(),
+                                )
+                                .into(),
+                                s.into(),
+                                "</div>".into(),
+                                render_opening_tag(
+                                    "div",
+                                    self.config.class_page_embed_content.as_str(),
+                                )
+                                .into(),
+                                embedded_page,
+                                "</div>\n</div>".into(),
+                            ])
+                        })
                     })
                     .unwrap_or(Ok(StringBuilder::Empty))?;
                 (result, true, true)
@@ -529,10 +496,10 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_line_without_header(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
         let parsed = parse(self.graph.content_style, &block.string)
-            .map_err(|e| anyhow!("Parse Error: {:?}", e))?;
+            .map_err(|e| eyre!("Parse Error: {:?}", e))?;
 
         let filter_links = self.config.filter_link_only_blocks
             && parsed.iter().all(|e| match e {
@@ -550,7 +517,7 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_line(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
     ) -> Result<(StringBuilder<'a>, bool)> {
         self.render_line_without_header(block, seen_hashtags)
             .map(|result| {
@@ -580,26 +547,39 @@ impl<'a, 'b> Page<'a, 'b> {
     fn render_block_and_children(
         &self,
         block: &'a Block,
-        seen_hashtags: &mut FxHashSet<&'a str>,
+        seen_hashtags: &mut HashSet<&'a str>,
+        inherited_view_type: ViewType,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
+        let (rendered, render_li, render_child_container, render_children) =
+            match block.include_type {
+                BlockInclude::Exclude => return Ok(StringBuilder::Empty),
+                BlockInclude::JustBlock => {
+                    let (rendered, _) = self.render_line(block, seen_hashtags)?;
+                    (rendered, true, false, false)
+                }
+                BlockInclude::AndChildren | BlockInclude::IfChildrenPresent => {
+                    let (rendered, render_children) = self.render_line(block, seen_hashtags)?;
+                    (rendered, true, true, render_children)
+                }
+                BlockInclude::OnlyChildren => (StringBuilder::Empty, false, false, true),
+            };
+
+        let increase_depth = block.include_type != BlockInclude::OnlyChildren;
         let render_children = render_children && !block.children.is_empty();
+        let view_type = block.view_type.resolve_with_parent(inherited_view_type);
 
         if block.edit_time > self.latest_found_edit_time.get() {
             self.latest_found_edit_time.set(block.edit_time);
         }
 
-        // println!(
-        //     "Block {} renderchildren: {}, children {:?}, content {}",
-        //     block.id, render_children, block.children, block.string
-        // );
+        // println!("Block {block:?} renderchildren: {render_children}",);
 
         if rendered.is_blank() && !render_children {
             return Ok(StringBuilder::Empty);
         }
 
-        let render_li = depth > 0;
+        let render_li = render_li && depth > 0;
 
         let mut result = StringBuilder::with_capacity(9);
         result.push(write_depth(depth));
@@ -614,50 +594,62 @@ impl<'a, 'b> Page<'a, 'b> {
 
         result.push(rendered);
 
+        let mut child_had_content = false;
         if render_children {
-            result.push("\n");
-            result.push(write_depth(depth + 1));
-
-            let element = match block.view_type {
-                ViewType::Document => "<ul class=\"list-document\">\n",
-                ViewType::Bullet => "<ul class=\"list-bullet\">\n",
-                ViewType::Numbered => "<ol class=\"list-numbered\">\n",
+            let (child_container_depth, child_depth) = if increase_depth {
+                (depth + 1, depth + 2)
+            } else {
+                (depth, depth)
             };
-            result.push(element);
+
+            result.push("\n");
+
+            if render_child_container {
+                result.push(write_depth(child_container_depth));
+                let element = match view_type {
+                    ViewType::Document => "<ul class=\"list-document\">\n",
+                    ViewType::Bullet => "<ul class=\"list-bullet\">\n",
+                    ViewType::Numbered => "<ol class=\"list-numbered\">\n",
+                    ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
+                };
+                result.push(element);
+            }
 
             let mut children = block
                 .children
                 .iter()
-                .filter_map(|id| {
-                    let render = match (depth, self.include_scope) {
-                        (0, IncludeScope::Full) => true,
-                        (0, IncludeScope::Partial(p)) => p.contains(id),
-                        (_, _) => true,
-                    };
-
-                    if render {
-                        self.graph.blocks.get(id)
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|id| self.graph.blocks.get(id))
                 .collect::<Vec<_>>();
             if self.graph.block_explicit_ordering {
                 children.sort_by_key(|b| b.order);
             }
 
             for child in &children {
-                result.push(self.render_block_and_children(child, seen_hashtags, depth + 2)?);
+                let child_content =
+                    self.render_block_and_children(child, seen_hashtags, view_type, child_depth)?;
+
+                if !child_had_content && !child_content.is_blank() {
+                    child_had_content = true;
+                }
+
+                result.push(child_content);
             }
 
-            result.push(write_depth(depth + 1));
+            if render_child_container {
+                result.push(write_depth(child_container_depth));
 
-            let element = match block.view_type {
-                ViewType::Document => "</ul>\n",
-                ViewType::Bullet => "</ul>\n",
-                ViewType::Numbered => "</ol>\n",
-            };
-            result.push(element);
+                let element = match view_type {
+                    ViewType::Document => "</ul>\n",
+                    ViewType::Bullet => "</ul>\n",
+                    ViewType::Numbered => "</ol>\n",
+                    ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
+                };
+                result.push(element);
+            }
+        }
+
+        if block.include_type == BlockInclude::IfChildrenPresent && !child_had_content {
+            return Ok(StringBuilder::Empty);
         }
 
         if render_li {
@@ -671,10 +663,10 @@ impl<'a, 'b> Page<'a, 'b> {
         Ok(result)
     }
 
-    pub fn render(&self) -> Result<(String, FxHashSet<&'a str>)> {
+    pub fn render(&self) -> Result<(String, HashSet<&'a str>)> {
         let block = self.graph.blocks.get(&self.id).unwrap();
-        let mut seen_hashtags: FxHashSet<&'a str> = FxHashSet::default();
-        self.render_block_and_children(block, &mut seen_hashtags, 0)
+        let mut seen_hashtags: HashSet<&'a str> = HashSet::default();
+        self.render_block_and_children(block, &mut seen_hashtags, ViewType::default_view_type(), 0)
             .map(|results| (results.build(), seen_hashtags))
     }
 }

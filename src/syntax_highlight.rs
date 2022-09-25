@@ -1,3 +1,4 @@
+use eyre::Result;
 use syntect::html;
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
@@ -22,7 +23,7 @@ impl Highlighter {
         }
     }
 
-    pub fn highlight(&self, text: &str) -> Result<String, anyhow::Error> {
+    pub fn highlight(&self, text: &str) -> Result<String> {
         let mut lines = LinesWithEndings::from(text);
 
         let first_line = lines.next().unwrap_or("").trim();
@@ -32,7 +33,7 @@ impl Highlighter {
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
 
         let mut highlighter = html::ClassedHTMLGenerator::new_with_class_style(
-            &syntax,
+            syntax,
             &self.syntax_set,
             self.class_style,
         );

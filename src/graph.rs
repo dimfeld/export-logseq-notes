@@ -1,21 +1,15 @@
-use std::collections::BTreeMap;
-
-use fxhash::FxHashMap;
+use ahash::HashMap;
 use smallvec::SmallVec;
 
 use crate::parse_string::ContentStyle;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
+    #[default]
+    Inherit,
     Bullet,
     Numbered,
     Document,
-}
-
-impl Default for ViewType {
-    fn default() -> ViewType {
-        ViewType::Bullet
-    }
 }
 
 impl<T> From<T> for ViewType
@@ -26,14 +20,43 @@ where
         match value.as_ref() {
             "document" => ViewType::Document,
             "numbered" => ViewType::Numbered,
-            _ => ViewType::Bullet,
+            "bullet" => ViewType::Bullet,
+            _ => ViewType::Inherit,
+        }
+    }
+}
+
+impl ViewType {
+    pub fn default_view_type() -> ViewType {
+        ViewType::Bullet
+    }
+
+    pub fn resolve_with_parent(&self, parent: ViewType) -> ViewType {
+        match self {
+            ViewType::Inherit => parent,
+            _ => *self,
         }
     }
 }
 
 pub type AttrList = SmallVec<[String; 1]>;
 
-#[derive(Debug)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum BlockInclude {
+    /// Render the block and its children.
+    #[default]
+    AndChildren,
+    /// Skip rendering the block, but render its children.
+    OnlyChildren,
+    /// Render just this block and not its children.
+    JustBlock,
+    /// Don't render the block or its children.
+    Exclude,
+    /// Render the block and its children, if the children have content
+    IfChildrenPresent,
+}
+
+#[derive(Clone, Debug)]
 pub struct Block {
     pub id: usize,
     pub containing_page: usize,
@@ -43,9 +66,10 @@ pub struct Block {
     pub parent: Option<usize>,
     pub children: SmallVec<[usize; 2]>,
     pub order: usize,
+    pub include_type: BlockInclude,
 
     pub tags: AttrList,
-    pub attrs: FxHashMap<String, AttrList>,
+    pub attrs: HashMap<String, AttrList>,
     pub is_journal: bool,
 
     pub string: String,
@@ -56,41 +80,39 @@ pub struct Block {
     pub create_time: usize,
 }
 
+#[derive(Debug)]
+pub struct ParsedPage {
+    pub root_block: usize,
+    pub blocks: HashMap<usize, Block>,
+}
+
+#[derive(Debug)]
 pub struct Graph {
-    pub blocks: BTreeMap<usize, Block>,
-    pub titles: FxHashMap<String, usize>,
-    pub blocks_by_uid: FxHashMap<String, usize>,
+    pub blocks: HashMap<usize, Block>,
+    pub blocks_by_uid: HashMap<String, usize>,
+    pub page_blocks: Vec<usize>,
 
     /// true if the blocks are ordered by the order field, instead of just the order in which they
     /// appear in `children`
     pub block_explicit_ordering: bool,
 
     pub content_style: ContentStyle,
-    pub tagged_blocks: FxHashMap<String, Vec<usize>>,
 }
 
 impl Graph {
     pub fn new(content_style: ContentStyle, block_explicit_ordering: bool) -> Graph {
         Graph {
-            blocks: BTreeMap::new(),
-            titles: FxHashMap::default(),
-            blocks_by_uid: FxHashMap::default(),
-            tagged_blocks: FxHashMap::default(),
+            blocks: HashMap::default(),
+            blocks_by_uid: HashMap::default(),
+            page_blocks: Vec::new(),
             content_style,
             block_explicit_ordering,
         }
     }
 
     pub fn add_block(&mut self, block: Block) {
-        if let Some(title) = block.page_title.as_ref() {
-            self.titles.insert(title.clone(), block.id);
-        }
-
-        for tag in block.tags.iter() {
-            self.tagged_blocks
-                .entry(tag.clone())
-                .or_default()
-                .push(block.id);
+        if block.page_title.is_some() {
+            self.page_blocks.push(block.id);
         }
 
         if !block.uid.is_empty() {

@@ -9,8 +9,11 @@ product = "logseq"
 # Write the rendered pages into this directory
 output = "pages"
 
+# The script to run against each page.
+script = "sample.rhai"
+
 # Use this template when rendering pages. See the `templates` directory for examples.
-template = "front_matter.tmpl"
+template = "templates/front_matter.tmpl"
 
 # Use this file extension on the rendered pages
 extension = "html"
@@ -43,7 +46,7 @@ also = [
   "syntax-test"
 ]
 
-# Pages that reference any of these pages will be excluded
+# Pages that reference any of these tags will be excluded
 exclude = [
   "Areas",
   "CV"

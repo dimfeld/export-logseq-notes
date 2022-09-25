@@ -1,5 +1,6 @@
+use ahash::{HashMap, HashMapExt};
 use edn_rs::{Edn, EdnError};
-use fxhash::FxHashMap;
+use eyre::Result;
 use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
@@ -7,7 +8,7 @@ use std::mem;
 use std::str::FromStr;
 
 use crate::{
-    graph::{Block, Graph, ViewType},
+    graph::{Block, BlockInclude, Graph, ParsedPage, ViewType},
     parse_string::ContentStyle,
 };
 
@@ -54,7 +55,7 @@ struct RoamBlock {
     pub page: usize,
     pub order: usize,
     pub refs: SmallVec<[usize; 4]>,
-    pub referenced_attrs: FxHashMap<String, SmallVec<[AttrValue; 4]>>,
+    pub referenced_attrs: HashMap<String, SmallVec<[AttrValue; 4]>>,
 
     /** Nonzero indicates that this is a daily log page (I think) */
     pub log_id: usize,
@@ -327,8 +328,7 @@ impl RoamGraph {
                 (":entity/attrs", Edn::Set(attrs)) => {
                     // List of attributes referenced within a page
 
-                    let mut grouped: FxHashMap<String, SmallVec<[AttrValue; 4]>> =
-                        FxHashMap::default();
+                    let mut grouped: HashMap<String, SmallVec<[AttrValue; 4]>> = HashMap::default();
                     let attr_values = attrs
                         .to_set()
                         .into_iter()
@@ -371,9 +371,10 @@ impl RoamGraph {
     }
 }
 
-pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
+pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
     let roam_graph = RoamGraph::from_edn(path)?;
-    let mut graph = Graph::new(ContentStyle::Roam, true);
+
+    let mut blocks = Vec::with_capacity(roam_graph.blocks.len());
 
     for roam_block in roam_graph.blocks.values() {
         let tags = roam_block
@@ -413,6 +414,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
         let block = Block {
             id: roam_block.id,
             uid: roam_block.uid.clone(),
+            include_type: BlockInclude::default(),
             containing_page: roam_block.page,
             page_title: roam_block.title.clone(),
             tags,
@@ -422,15 +424,30 @@ pub fn graph_from_roam_edn(path: &str) -> Result<Graph, anyhow::Error> {
             is_journal: roam_block.log_id > 0,
 
             order: roam_block.order,
-            parent: roam_block.parents.get(0).copied(),
+            parent: roam_block.parents.first().copied(),
             children: roam_block.children.clone(),
             string: roam_block.string.clone(),
             heading: roam_block.heading,
             view_type,
         };
 
-        graph.add_block(block);
+        blocks.push(block);
     }
 
-    Ok(graph)
+    let mut pages: HashMap<usize, ParsedPage> = HashMap::new();
+
+    for block in blocks {
+        let p = pages
+            .entry(block.containing_page)
+            .or_insert_with(|| ParsedPage {
+                root_block: block.containing_page,
+                blocks: HashMap::default(),
+            });
+
+        p.blocks.insert(block.id, block);
+    }
+
+    let page_list = pages.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
+
+    Ok((ContentStyle::Roam, true, page_list))
 }

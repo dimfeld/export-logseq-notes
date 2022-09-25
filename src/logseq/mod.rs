@@ -11,17 +11,17 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, Context};
+use ahash::{HashMap, HashMapExt};
 use edn_rs::Edn;
-use fxhash::FxHashMap;
-use itertools::{put_back, Itertools, PutBack};
+use eyre::{eyre, Result, WrapErr};
+use itertools::{put_back, PutBack};
 use rayon::prelude::*;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    config::DailyNotes,
-    graph::{AttrList, Block, Graph, ViewType},
+    graph::{AttrList, Block, BlockInclude, Graph, ParsedPage, ViewType},
+    parse_string::ContentStyle,
 };
 
 use self::blocks::LogseqRawBlock;
@@ -39,7 +39,7 @@ pub struct JsonBlock {
     #[serde(rename = "page-name")]
     pub page_name: Option<String>,
     #[serde(default)]
-    pub properties: FxHashMap<String, serde_json::Value>,
+    pub properties: HashMap<String, serde_json::Value>,
     pub children: Vec<JsonBlock>,
     pub format: Option<BlockFormat>,
     pub content: Option<String>,
@@ -55,9 +55,8 @@ pub struct PageMetadata {
 pub struct LogseqGraph {
     next_id: usize,
     root: PathBuf,
-    graph: Graph,
 
-    page_metadata: FxHashMap<String, PageMetadata>,
+    page_metadata: HashMap<String, PageMetadata>,
 }
 
 type LinesIterator<T> = PutBack<std::io::Lines<T>>;
@@ -66,26 +65,22 @@ impl LogseqGraph {
     // This is a weird way to do it since the "constructor" returns a Graph instead of a
     // LogseqGraph, but there's no reason to do otherwise in this case since we never actually want
     // to keep the LogseqGraph around.
-    pub fn build(path: PathBuf, include_journals: DailyNotes) -> Result<Graph, anyhow::Error> {
+    pub fn build(path: PathBuf) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
-            graph: Graph::new(crate::parse_string::ContentStyle::Logseq, false),
             root: path,
-            page_metadata: FxHashMap::default(),
+            page_metadata: HashMap::default(),
         };
 
         lsgraph.read_page_metadata()?;
-        if include_journals != DailyNotes::Exclusive {
-            lsgraph.read_page_directory("pages", false)?;
-        }
-        if include_journals != DailyNotes::Deny {
-            lsgraph.read_page_directory("journals", true)?;
-        }
+        let mut pages = lsgraph.read_page_directory("pages", false)?;
+        let journals = lsgraph.read_page_directory("journals", true)?;
 
-        Ok(lsgraph.graph)
+        pages.extend(journals.into_iter());
+        Ok((ContentStyle::Logseq, false, pages))
     }
 
-    fn read_page_metadata(&mut self) -> Result<(), anyhow::Error> {
+    fn read_page_metadata(&mut self) -> Result<()> {
         let metadata_path = self.root.join("logseq").join("pages-metadata.edn");
         let source = std::fs::read_to_string(&metadata_path)
             .with_context(|| format!("Reading metadata file {metadata_path:?}"))?;
@@ -93,7 +88,7 @@ impl LogseqGraph {
 
         let blocks = match data {
             Edn::Vector(blocks) => blocks.to_vec(),
-            _ => return Err(anyhow!("Unknown page-metadata format, expected list")),
+            _ => return Err(eyre!("Unknown page-metadata format, expected list")),
         };
 
         self.page_metadata = blocks
@@ -105,7 +100,7 @@ impl LogseqGraph {
                         Edn::Str(s) => Some(s.trim().to_string()),
                         _ => None,
                     })
-                    .ok_or_else(|| anyhow!("No block name found in page-metadata block"))?;
+                    .ok_or_else(|| eyre!("No block name found in page-metadata block"))?;
                 let created_time = data
                     .get(":block/created-at")
                     .and_then(|v| v.to_uint())
@@ -123,12 +118,12 @@ impl LogseqGraph {
                     },
                 ))
             })
-            .collect::<Result<_, anyhow::Error>>()?;
+            .collect::<Result<_>>()?;
 
         Ok(())
     }
 
-    fn read_page_directory(&mut self, name: &str, is_journal: bool) -> Result<(), anyhow::Error> {
+    fn read_page_directory(&mut self, name: &str, is_journal: bool) -> Result<Vec<ParsedPage>> {
         let dir = self.root.join(name);
         let files = std::fs::read_dir(&dir)
             .with_context(|| format!("{dir:?}"))?
@@ -146,19 +141,15 @@ impl LogseqGraph {
             self.next_id += page.blocks.len() + 1;
         }
 
-        let blocks = raw_pages
+        let pages = raw_pages
             .into_par_iter()
-            .flat_map(|page| self.process_raw_page(page, is_journal))
+            .map(|page| self.process_raw_page(page, is_journal))
             .collect::<Vec<_>>();
 
-        for block in blocks {
-            self.graph.add_block(block);
-        }
-
-        Ok(())
+        Ok(pages)
     }
 
-    fn process_raw_page(&self, mut page: LogseqRawPage, is_journal: bool) -> Vec<Block> {
+    fn process_raw_page(&self, mut page: LogseqRawPage, is_journal: bool) -> ParsedPage {
         let title = page
             .attrs
             .remove("title")
@@ -181,17 +172,34 @@ impl LogseqGraph {
             .map(|t| t.to_lowercase())
             .and_then(|t| self.page_metadata.get(&t));
 
+        let default_date = if is_journal {
+            let mut i = title.as_deref().unwrap_or_default().splitn(3, '-');
+            let y = i.next().map(|x| x.parse::<i32>());
+            let m = i.next().map(|x| x.parse::<u32>());
+            let d = i.next().map(|x| x.parse::<u32>());
+
+            match (y, m, d) {
+                (Some(Ok(y)), Some(Ok(m)), Some(Ok(d))) => chrono::NaiveDate::from_ymd_opt(y, m, d)
+                    .map(|d| d.and_hms(0, 0, 0).timestamp_millis() as usize)
+                    .unwrap_or_default(),
+                _ => 0,
+            }
+        } else {
+            0
+        };
+
         let page_block = Block {
             id: page.base_id,
             uid,
+            include_type: BlockInclude::IfChildrenPresent,
             containing_page: page.base_id,
             page_title: title,
             is_journal,
             string: String::new(),
             heading: 0,
             view_type,
-            edit_time: meta.map(|m| m.edited_time).unwrap_or_default(),
-            create_time: meta.map(|m| m.created_time).unwrap_or_default(),
+            edit_time: meta.map(|m| m.edited_time).unwrap_or(default_date),
+            create_time: meta.map(|m| m.created_time).unwrap_or(default_date),
             children: SmallVec::new(),
 
             tags,
@@ -200,8 +208,9 @@ impl LogseqGraph {
             order: 0,
         };
 
-        let mut blocks = Vec::with_capacity(page.blocks.len() + 1);
-        blocks.push(page_block);
+        let mut blocks = HashMap::with_capacity(page.blocks.len() + 1);
+        let root_block = page_block.id;
+        blocks.insert(page_block.id, page_block);
 
         for (i, input) in page.blocks.into_iter().enumerate() {
             // The parent is either the index in the page, or it's the page block itself.
@@ -209,16 +218,17 @@ impl LogseqGraph {
             let parent_id = parent_block_idx + page.base_id;
 
             let this_id = page.base_id + i + 1;
-            blocks[parent_block_idx].children.push(this_id);
+            blocks.get_mut(&parent_id).unwrap().children.push(this_id);
 
             let block = Block {
                 id: this_id,
                 uid: input.id,
+                include_type: BlockInclude::default(),
                 order: 0,
                 parent: Some(parent_id),
                 children: SmallVec::new(),
-                attrs: FxHashMap::default(), // this_input.attrs,
-                tags: SmallVec::new(),
+                attrs: HashMap::default(), // this_input.attrs,
+                tags: input.tags,
                 create_time: 0,
                 edit_time: 0,
                 view_type: input.view_type,
@@ -229,21 +239,21 @@ impl LogseqGraph {
                 containing_page: page.base_id,
             };
 
-            blocks.push(block);
+            blocks.insert(block.id, block);
         }
 
-        blocks
+        ParsedPage { root_block, blocks }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct LogseqRawPage {
     base_id: usize,
-    attrs: FxHashMap<String, AttrList>,
+    attrs: HashMap<String, AttrList>,
     blocks: Vec<LogseqRawBlock>,
 }
 
-fn read_logseq_md_file(filename: &Path, is_journal: bool) -> Result<LogseqRawPage, anyhow::Error> {
+fn read_logseq_md_file(filename: &Path, is_journal: bool) -> Result<LogseqRawPage> {
     let file =
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
     let mut lines = put_back(BufReader::new(file).lines());
@@ -254,7 +264,7 @@ fn parse_logseq_file(
     filename: &Path,
     lines: &mut LinesIterator<impl BufRead>,
     is_journal: bool,
-) -> Result<LogseqRawPage, anyhow::Error> {
+) -> Result<LogseqRawPage> {
     let page_attrs_list = page_header::parse_page_header(lines)?;
 
     // Create a block containing the page header attributes so that it will show up in the output
@@ -282,7 +292,7 @@ fn parse_logseq_file(
     let mut page_attrs = page_attrs_list
         .into_iter()
         .map(|(attr_name, values)| (attr_name.to_lowercase(), values))
-        .collect::<FxHashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
 
     if !page_attrs.contains_key("title") {
         let mut title = filename

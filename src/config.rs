@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use eyre::{eyre, Result, WrapErr};
 use serde::Deserialize;
 use std::io::Read;
 use std::path::PathBuf;
@@ -25,89 +25,14 @@ struct InputConfig {
     #[structopt(short, long, env, help = "Output directory")]
     pub output: Option<PathBuf>,
 
+    #[structopt(short, long, env, help = "The script to run")]
+    pub script: Option<PathBuf>,
+
     #[structopt(long, env, help = "Data format to read")]
     pub product: Option<PkmProduct>,
 
     #[structopt(long, env, help = "Base URL to apply to relative hyperlinks")]
     pub base_url: Option<String>,
-
-    #[structopt(
-        short,
-        long,
-        env,
-        help = "Generate namespaces in their own directories (Not implemented yet)"
-    )]
-    pub namespace_dirs: Option<bool>, // TODO
-
-    #[structopt(
-        short,
-        long,
-        env,
-        help = "Include pages with this hashtag or attribute. This reference will be omitted so that you can use a special tag that should not be rendered in the output. If a page references this as an attribute, the page's filename will be the value of the attribute."
-    )]
-    pub include: Option<String>,
-
-    #[structopt(
-        short,
-        long,
-        env,
-        help = r##"Include pages where this attribute has the value true, and exclude pages where this attribute has the value false. For Logseq this should usuallly be set to "public""##
-    )]
-    pub bool_include_attr: Option<String>,
-
-    #[structopt(
-        long,
-        env,
-        help = "Additional hashtags, links, and attributes to indicate a page should be included. Unlike the primary tag filter, these will not be removed from the output"
-    )]
-    pub also: Option<Vec<String>>,
-
-    #[structopt(
-        long,
-        env,
-        help = "Instead of using tags, include all pages, except for daily notes pages (controlled by --allow-daily-notes) and pages with excluded tags"
-    )]
-    pub include_all: Option<bool>,
-
-    #[structopt(
-        long,
-        env,
-        help = "Make daily notes pages eligible to be included. The other inclusion criteria still apply."
-    )]
-    pub allow_daily_notes: Option<bool>,
-
-    #[structopt(long, env, help = "Only look at daily notes, not any other pages")]
-    pub only_daily_notes: Option<bool>,
-
-    #[structopt(
-        long,
-        env,
-        help = "Hide pages that reference these hashtags, links, and attributes."
-    )]
-    pub exclude: Option<Vec<String>>,
-
-    #[structopt(
-        long,
-        env,
-        help = "Exclude these values from the page template's `tags` list"
-    )]
-    pub exclude_tags: Option<Vec<String>>,
-
-    // TODO Feels like this is starting to call for a small DSL that could match on things like
-    // depth, tag, block, title, etc.
-    #[structopt(
-        long,
-        env,
-        help = "On pages that don't match any exclude criteria but aren't fully public, publish top-level blocks starting with these values"
-    )]
-    pub include_blocks_with_prefix: Option<Vec<String>>,
-
-    #[structopt(
-        long,
-        env,
-        help = "On pages that don't match any exclude criteria but aren't fully public, publish blocks with these tags"
-    )]
-    pub include_blocks_with_tags: Option<Vec<String>>,
 
     #[structopt(long, env, help = "Skip rendering blocks with these attributes")]
     pub omit_attributes: Option<Vec<String>>,
@@ -119,7 +44,11 @@ struct InputConfig {
     )]
     pub highlight_class_prefix: Option<String>,
 
-    #[structopt(long, env, help = "Template file for each rendered page")]
+    #[structopt(
+        long,
+        env,
+        help = "Template file for each rendered page, if not set from the script"
+    )]
     pub template: Option<PathBuf>,
 
     #[structopt(long = "ext", env, help = "Output file extension. Default: html")]
@@ -138,9 +67,7 @@ struct InputConfig {
     )]
     pub filter_link_only_blocks: Option<bool>,
 
-    #[structopt(long, env, help = "Include page embeds of non-exported pages")]
-    pub include_all_page_embeds: Option<bool>,
-
+    // Syntax highlighter configuration
     #[structopt(long, env)]
     pub class_bold: Option<String>,
     #[structopt(long, env)]
@@ -189,48 +116,41 @@ impl Default for PkmProduct {
 }
 
 impl FromStr for PkmProduct {
-    type Err = anyhow::Error;
+    type Err = eyre::Report;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "roam" => Ok(Self::Roam),
             "logseq" => Ok(Self::Logseq),
-            _ => Err(anyhow!("Supported products are roam, logseq")),
+            _ => Err(eyre!("Supported products are roam, logseq")),
         }
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum DailyNotes {
-    Deny,
-    Allow,
-    Exclusive,
 }
 
 pub struct Config {
     pub path: PathBuf,
     pub output: PathBuf,
+    pub script: PathBuf,
     pub product: PkmProduct,
     pub base_url: Option<String>,
-    pub namespace_dirs: bool, // TODO
-    pub include: Option<String>,
-    pub bool_include_attr: Option<String>,
-    pub also: Vec<String>,
-    pub include_all: bool,
-    pub daily_notes: DailyNotes,
-    pub exclude: Vec<String>,
-    pub exclude_tags: Vec<String>,
+    // pub namespace_dirs: bool, // TODO
+    // pub include: Option<String>,
+    // pub bool_include_attr: Option<String>,
+    // pub also: Vec<String>,
+    // pub include_all: bool,
+    // pub daily_notes: DailyNotes,
+    // pub exclude: Vec<String>,
+    // pub exclude_tags: Vec<String>,
     pub omit_attributes: Vec<String>,
-    pub include_blocks_with_tags: Vec<String>,
-    pub include_blocks_with_prefix: Vec<String>,
+    // pub include_blocks_with_tags: Vec<String>,
+    // pub include_blocks_with_prefix: Vec<String>,
     pub highlight_class_prefix: Option<String>,
-    pub template: PathBuf,
+    pub template: Option<PathBuf>,
     pub extension: String,
     pub tags_attr: Option<String>,
     pub use_all_hashtags: bool,
     pub filter_link_only_blocks: bool,
-    pub include_all_page_embeds: bool, // TODO
-
+    // pub include_all_page_embeds: bool, // TODO
     pub class_bold: String,
     pub class_italic: String,
     pub class_strikethrough: String,
@@ -252,7 +172,7 @@ pub struct Config {
 fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<T> {
     first
         .or(second)
-        .ok_or_else(|| anyhow!("The {} option is required", name))
+        .ok_or_else(|| eyre!("The {} option is required", name))
 }
 
 fn merge_default<T: Default>(first: Option<T>, second: Option<T>) -> T {
@@ -289,44 +209,45 @@ impl Config {
             }
         };
 
-        let allow_daily_notes =
-            merge_default(cmdline_cfg.allow_daily_notes, file_cfg.allow_daily_notes);
+        // let allow_daily_notes =
+        //     merge_default(cmdline_cfg.allow_daily_notes, file_cfg.allow_daily_notes);
 
-        let only_daily_notes =
-            merge_default(cmdline_cfg.only_daily_notes, file_cfg.only_daily_notes);
+        // let only_daily_notes =
+        //     merge_default(cmdline_cfg.only_daily_notes, file_cfg.only_daily_notes);
 
-        let daily_notes = match (allow_daily_notes, only_daily_notes) {
-            (_, true) => DailyNotes::Exclusive,
-            (true, false) => DailyNotes::Allow,
-            (false, false) => DailyNotes::Deny,
-        };
+        // let daily_notes = match (allow_daily_notes, only_daily_notes) {
+        //     (_, true) => DailyNotes::Exclusive,
+        //     (true, false) => DailyNotes::Allow,
+        //     (false, false) => DailyNotes::Deny,
+        // };
 
         let mut cfg = Config {
             path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
+            script: merge_required("script", cmdline_cfg.script, file_cfg.script)?,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
-            namespace_dirs: merge_default(cmdline_cfg.namespace_dirs, file_cfg.namespace_dirs),
-            include: cmdline_cfg.include.or(file_cfg.include),
-            bool_include_attr: cmdline_cfg.bool_include_attr.or(file_cfg.bool_include_attr),
-            also: merge_default(cmdline_cfg.also, file_cfg.also),
-            include_all: merge_default(cmdline_cfg.include_all, file_cfg.include_all),
-            daily_notes,
-            exclude: merge_default(cmdline_cfg.exclude, file_cfg.exclude),
-            exclude_tags: merge_default(cmdline_cfg.exclude_tags, file_cfg.exclude_tags),
+            // namespace_dirs: merge_default(cmdline_cfg.namespace_dirs, file_cfg.namespace_dirs),
+            // include: cmdline_cfg.include.or(file_cfg.include),
+            // bool_include_attr: cmdline_cfg.bool_include_attr.or(file_cfg.bool_include_attr),
+            // also: merge_default(cmdline_cfg.also, file_cfg.also),
+            // include_all: merge_default(cmdline_cfg.include_all, file_cfg.include_all),
+            // daily_notes,
+            // exclude: merge_default(cmdline_cfg.exclude, file_cfg.exclude),
+            // exclude_tags: merge_default(cmdline_cfg.exclude_tags, file_cfg.exclude_tags),
             omit_attributes: merge_default(cmdline_cfg.omit_attributes, file_cfg.omit_attributes),
-            include_blocks_with_tags: merge_default(
-                cmdline_cfg.include_blocks_with_tags,
-                file_cfg.include_blocks_with_tags,
-            ),
-            include_blocks_with_prefix: merge_default(
-                cmdline_cfg.include_blocks_with_prefix,
-                file_cfg.include_blocks_with_prefix,
-            ),
+            // include_blocks_with_tags: merge_default(
+            //     cmdline_cfg.include_blocks_with_tags,
+            //     file_cfg.include_blocks_with_tags,
+            // ),
+            // include_blocks_with_prefix: merge_default(
+            //     cmdline_cfg.include_blocks_with_prefix,
+            //     file_cfg.include_blocks_with_prefix,
+            // ),
             highlight_class_prefix: cmdline_cfg
                 .highlight_class_prefix
                 .or(file_cfg.highlight_class_prefix),
-            template: merge_default(cmdline_cfg.template, file_cfg.template),
+            template: cmdline_cfg.template.or(file_cfg.template),
             extension: merge_default(cmdline_cfg.extension, file_cfg.extension),
             tags_attr: cmdline_cfg.tags_attr.or(file_cfg.tags_attr),
             use_all_hashtags: merge_default(
@@ -337,11 +258,10 @@ impl Config {
                 cmdline_cfg.filter_link_only_blocks,
                 file_cfg.filter_link_only_blocks,
             ),
-            include_all_page_embeds: merge_default(
-                cmdline_cfg.include_all_page_embeds,
-                file_cfg.include_all_page_embeds,
-            ),
-
+            // include_all_page_embeds: merge_default(
+            //     cmdline_cfg.include_all_page_embeds,
+            //     file_cfg.include_all_page_embeds,
+            // ),
             class_bold: merge_default(cmdline_cfg.class_bold, file_cfg.class_bold),
             class_italic: merge_default(cmdline_cfg.class_italic, file_cfg.class_italic),
             class_strikethrough: merge_default(
@@ -382,23 +302,23 @@ impl Config {
         };
 
         // For environment variables, handle comma separated strings for vectors
-        cfg.also = cfg
-            .also
-            .iter()
-            .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
-            .collect::<Vec<_>>();
+        // cfg.also = cfg
+        //     .also
+        //     .iter()
+        //     .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
+        //     .collect::<Vec<_>>();
 
-        cfg.exclude = cfg
-            .exclude
-            .iter()
-            .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
-            .collect::<Vec<_>>();
+        // cfg.exclude = cfg
+        //     .exclude
+        //     .iter()
+        //     .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
+        //     .collect::<Vec<_>>();
 
-        cfg.exclude_tags = cfg
-            .exclude_tags
-            .iter()
-            .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
-            .collect::<Vec<_>>();
+        // cfg.exclude_tags = cfg
+        //     .exclude_tags
+        //     .iter()
+        //     .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
+        //     .collect::<Vec<_>>();
 
         // Make sure base url starts and ends with a slash
         cfg.base_url = cfg.base_url.map(|url| {
