@@ -13,6 +13,7 @@ use rhai::Engine;
 use serde::Serialize;
 use smallvec::SmallVec;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -281,7 +282,9 @@ pub fn make_pages_from_script(
             )))
         })
         .filter_map(|p| p.transpose())
-        .collect::<Result<HashMap<_, _>>>()?;
+        // Use BTreeMap since it gets us sorted keys in the output, which is good for
+        // minimizing Git churn on the manifest.
+        .collect::<Result<BTreeMap<_, _>>>()?;
 
     let manifest_path = config.output.join("manifest.json");
     let mut manifest_writer = std::fs::File::create(&manifest_path)
