@@ -67,19 +67,10 @@ pub fn make_pages_from_script(
         .wrap_err("Parsing script")?;
 
     let mut pages = pages
-        .into_par_iter()
+        .into_iter()
         .map(|parsed_page| {
-            let mut engine = Engine::new_raw();
-
-            engine.on_print(|x| println!("script: {x}"));
-            engine.on_debug(|x, _src, pos| {
-                println!("script:{pos:?}: {x}");
-            });
-
-            package.register_into_engine(&mut engine);
-
             let (page_config, page_blocks) =
-                run_script_on_page(&mut engine, &ast, parsed_page).wrap_err("Running script")?;
+                run_script_on_page(&package, &ast, parsed_page).wrap_err("Running script")?;
             let slug = create_path(
                 page_config.url_base.as_str(),
                 config.base_url.as_deref().unwrap_or(""),
@@ -207,26 +198,13 @@ pub fn make_pages_from_script(
                 return Ok(None);
             }
 
-            let hashtags = if config.use_all_hashtags {
-                hashtags
-            } else {
-                HashSet::default()
-            };
-
-            let tags_set = config
-                .tags_attr
-                .as_deref()
-                .and_then(|tag_name| block.attrs.get(tag_name))
-                .map(|values| values.iter().map(|s| s.as_str()).collect::<HashSet<_>>())
-                .unwrap_or_else(HashSet::default);
-
-            let mut tags = tags_set
-                .union(&hashtags)
-                .copied()
-                .filter(|&s| omitted_attributes.get(s).is_none())
+            let mut tags = page_config
+                .tags
+                .iter()
+                .map(|s| s.as_str())
                 .collect::<Vec<_>>();
-
             tags.sort_by_key(|k| k.to_lowercase());
+            tags.dedup();
 
             let lower_tags = tags
                 .iter()

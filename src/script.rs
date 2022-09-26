@@ -1,17 +1,21 @@
 use crate::{
-    graph::{AttrList, Block, BlockInclude, Graph, ParsedPage, ViewType},
+    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
     make_pages::title_to_slug,
 };
 
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result};
-use rhai::{def_package, packages::StandardPackage, plugin::*, Scope, AST};
-use smallvec::smallvec;
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, Mutex},
+use regex::RegexSet;
+use rhai::{
+    def_package,
+    packages::{Package, StandardPackage},
+    plugin::*,
+    Scope, AST,
 };
+use smallvec::smallvec;
+use std::sync::{Arc, Mutex};
+
+type SmartString = smartstring::SmartString<smartstring::LazyCompact>;
 
 ///
 /// set_path_base(path) -- Set the base output folder for this page
@@ -130,44 +134,14 @@ impl BlockConfig {
     }
 }
 
-fn walk_block(
-    context: &NativeCallContext,
-    page: &mut PageObject,
-    max_depth: i64,
-    depth: i64,
-    block_id: usize,
-    callback: &rhai::FnPtr,
-) -> Result<()> {
-    let block_config = {
-        let p = page.page.lock().unwrap();
-        let block = p.blocks.get(&block_id).unwrap();
-        BlockConfig::from_block(block)
-    };
-
-    let mut d = Dynamic::from(block_config).into_shared();
-    callback.call_raw(context, Some(&mut d), [depth.into()])?;
-
-    let block_config = d.cast::<BlockConfig>();
-
-    let mut p = page.page.lock().unwrap();
-    let block = p.blocks.get_mut(&block_id).unwrap();
-    block_config.apply_to_block(block);
-
-    let next_depth = depth + 1;
-    if next_depth <= max_depth {
-        let children = block.children.clone();
-        drop(p);
-        for child_id in children {
-            walk_block(context, page, max_depth, next_depth, child_id, callback)?;
-        }
-    }
-
-    Ok(())
-}
-
 #[export_module]
 pub mod rhai_block {
     pub type Block = BlockConfig;
+
+    #[rhai_fn(get = "id", pure)]
+    pub fn get_id(block: &mut BlockConfig) -> i64 {
+        block.id as i64
+    }
 
     /// Get the text contents of the block.
     #[rhai_fn(get = "contents", pure)]
@@ -239,104 +213,126 @@ pub mod rhai_block {
 pub mod rhai_page {
     use rhai::FnPtr;
 
-    pub type Page = PageObject;
+    pub type Page = PageConfig;
 
     #[rhai_fn(get = "is_journal", pure)]
     pub fn is_journal(page: &mut Page) -> bool {
-        page.config.is_journal
+        page.is_journal
+    }
+
+    #[rhai_fn(get = "root_block", pure)]
+    pub fn root_block(page: &mut Page) -> i64 {
+        page.root_block as i64
     }
 
     #[rhai_fn(get = "path_base", pure)]
     pub fn get_path_base(page: &mut Page) -> String {
-        page.config.path_base.to_string()
+        page.path_base.to_string()
     }
 
     #[rhai_fn(set = "path_base")]
     pub fn set_path_base(page: &mut Page, value: String) {
-        page.config.path_base = value;
+        page.path_base = value;
     }
 
     /// Get the filename of the rendered page file. The default value is "", which indicates
     /// that the filename will be the `url_name` plus an appropriate extension.
     #[rhai_fn(get = "path_name", pure)]
     pub fn get_path_name(page: &mut Page) -> String {
-        page.config.path_name.to_string()
+        page.path_name.to_string()
     }
 
     /// Set the filename of the rendered page file. If empty, it will be the `url_name` plus
     /// an appropriate extension.
     #[rhai_fn(set = "path_name")]
     pub fn set_path_name(page: &mut Page, value: String) {
-        page.config.path_name = value;
+        page.path_name = value;
     }
 
     #[rhai_fn(get = "url_base", pure)]
     pub fn get_url_base(page: &mut Page) -> String {
-        page.config.url_base.to_string()
+        page.url_base.to_string()
     }
 
     #[rhai_fn(set = "url_base")]
     pub fn set_url_base(page: &mut Page, value: String) {
-        page.config.url_base = value;
+        page.url_base = value;
     }
 
     #[rhai_fn(get = "url_name", pure)]
     pub fn get_url_name(page: &mut Page) -> String {
-        page.config.url_name.to_string()
+        page.url_name.to_string()
     }
 
     #[rhai_fn(set = "url_name")]
     pub fn set_url_name(page: &mut Page, value: String) {
-        page.config.url_name = value;
+        page.url_name = value;
     }
 
     #[rhai_fn(get = "title", pure)]
     pub fn get_title(page: &mut Page) -> String {
-        page.config.title.to_string()
+        page.title.to_string()
     }
 
     #[rhai_fn(set = "title")]
     pub fn set_title(page: &mut Page, value: String) {
-        page.config.title = value;
+        page.title = value;
     }
 
     #[rhai_fn(get = "allow_embedding")]
     pub fn get_allow_embedding(page: &mut Page) -> AllowEmbed {
-        page.config.allow_embedding
+        page.allow_embedding
     }
 
     #[rhai_fn(set = "allow_embedding")]
     pub fn set_allow_embedding(page: &mut Page, value: AllowEmbed) {
-        page.config.allow_embedding = value
+        page.allow_embedding = value
     }
 
-    #[rhai_fn(global)]
-    pub fn allow_render(page: &mut Page, value: bool) {
-        page.config.include = value;
+    #[rhai_fn(get = "include", pure)]
+    pub fn get_include(page: &mut Page) -> bool {
+        page.include
+    }
+
+    #[rhai_fn(set = "include")]
+    pub fn set_include(page: &mut Page, value: bool) {
+        page.include = value;
     }
 
     #[rhai_fn(global)]
     pub fn add_tag(page: &mut Page, value: String) {
-        page.config.tags.push(value);
+        if !page.tags.contains(&value) {
+            page.tags.push(value);
+        }
+    }
+
+    #[rhai_fn(global)]
+    pub fn add_tags(page: &mut Page, values: Vec<Dynamic>) {
+        for value in values {
+            if let Ok(v) = value.into_string() {
+                if !page.tags.contains(&v) {
+                    page.tags.push(v);
+                }
+            }
+        }
     }
 
     #[rhai_fn(global)]
     pub fn remove_tag(page: &mut Page, value: String) {
-        let pos = page.config.tags.iter().position(|v| v == &value);
-        if let Some(index) = pos {
-            page.config.tags.swap_remove(index);
-        }
+        page.tags.retain(|v| v != &value);
     }
 
     #[rhai_fn(set = "tags")]
-    pub fn set_tags(page: &mut Page, tags: Vec<String>) {
-        page.config.tags = tags.into();
+    pub fn set_tags(page: &mut Page, tags: Vec<Dynamic>) {
+        page.tags = tags
+            .into_iter()
+            .filter_map(|t| t.into_string().ok())
+            .collect();
     }
 
-    #[rhai_fn(get = "tag", pure)]
+    #[rhai_fn(get = "tags", pure)]
     pub fn get_tags(page: &mut Page) -> Vec<Dynamic> {
-        page.config
-            .tags
+        page.tags
             .iter()
             .map(|s| Dynamic::from(s.to_string()))
             .collect()
@@ -344,23 +340,22 @@ pub mod rhai_page {
 
     #[rhai_fn(global)]
     pub fn remove_attr(page: &mut Page, name: String) {
-        page.config.attrs.remove(&name);
+        page.attrs.remove(&name);
     }
 
     #[rhai_fn(global)]
     pub fn set_attr(page: &mut Page, attr: String, value: String) {
-        page.config.attrs.insert(attr, smallvec![value]);
+        page.attrs.insert(attr, smallvec![value]);
     }
 
     #[rhai_fn(global)]
     pub fn set_attr_values(page: &mut Page, attr: String, value: Vec<String>) {
-        page.config.attrs.insert(attr, value.into());
+        page.attrs.insert(attr, value.into());
     }
 
     #[rhai_fn(global)]
     pub fn get_attr_first(page: &mut Page, attr: String) -> String {
-        page.config
-            .attrs
+        page.attrs
             .get(&attr)
             .and_then(|v| v.get(0))
             .cloned()
@@ -369,40 +364,149 @@ pub mod rhai_page {
 
     #[rhai_fn(global)]
     pub fn get_attr(page: &mut Page, attr: String) -> Vec<Dynamic> {
-        page.config
-            .attrs
+        page.attrs
             .get(&attr)
             .map(|l| l.iter().map(|s| Dynamic::from(s.to_string())).collect())
             .unwrap_or_else(Vec::new)
     }
 
     #[rhai_fn(global)]
-    pub fn each_block(
-        context: NativeCallContext,
-        page: &mut Page,
-        max_depth: i64,
-        callback: FnPtr,
-    ) -> std::result::Result<(), String> {
-        super::walk_block(
-            &context,
-            page,
-            max_depth,
-            0,
-            page.config.root_block,
-            &callback,
-        )
-        .map_err(|e| format!("{e:?}"))
-    }
-
-    #[rhai_fn(global)]
     pub fn set_template_file(page: &mut Page, filename: String) {
-        page.config.template = TemplateSelection::File(filename);
+        page.template = TemplateSelection::File(filename);
     }
 
     #[rhai_fn(global)]
     pub fn set_template_contents(page: &mut Page, contents: String) {
-        page.config.template = TemplateSelection::Value(contents);
+        page.template = TemplateSelection::Value(contents);
     }
+}
+
+pub fn each_block(
+    context: NativeCallContext,
+    page: &Arc<Mutex<ParsedPage>>,
+    max_depth: i64,
+    callback: rhai::FnPtr,
+) -> Result<(), Box<EvalAltResult>> {
+    let root_block = {
+        let p = page.lock().unwrap();
+        p.root_block
+    };
+
+    walk_block(&context, page, max_depth, 0, root_block, &callback)
+}
+
+fn walk_block(
+    context: &NativeCallContext,
+    page: &Arc<Mutex<ParsedPage>>,
+    max_depth: i64,
+    depth: i64,
+    block_id: usize,
+    callback: &rhai::FnPtr,
+) -> Result<(), Box<EvalAltResult>> {
+    let block_config = {
+        let p = page.lock().unwrap();
+        let block = p.blocks.get(&block_id).unwrap();
+        BlockConfig::from_block(block)
+    };
+
+    let d = Dynamic::from(block_config).into_shared();
+    callback.call_within_context(context, (d.clone(), Dynamic::from(depth)))?;
+
+    let block_config = d.cast::<BlockConfig>();
+
+    let mut p = page.lock().unwrap();
+    let block = p.blocks.get_mut(&block_id).unwrap();
+    block_config.apply_to_block(block);
+
+    let next_depth = depth + 1;
+    if next_depth <= max_depth {
+        let children = block.children.clone();
+        drop(p);
+        for child_id in children {
+            walk_block(context, page, max_depth, next_depth, child_id, callback)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Scan the entire contents of a page, and perform case-insensitive matching to generate tags.
+/// For each key and value pair, the key is the searched-for word string and the value is the
+/// tag assigned if it is found.
+pub fn autotag(
+    page: &Arc<Mutex<ParsedPage>>,
+    input: rhai::Map,
+    start_block: i64,
+) -> Result<Vec<Dynamic>, Box<EvalAltResult>> {
+    let num_searches = input.len();
+    let (searches, tags) = input
+        .into_iter()
+        .map(|(search, tag)| {
+            let tag = tag.into_immutable_string()?;
+
+            let search = format!(
+                r##"(?:^|\b){s}(?:\b|$)"##,
+                s = regex::escape(search.as_str())
+            );
+
+            Ok::<_, String>((search, tag))
+        })
+        .try_fold(
+            (
+                Vec::with_capacity(num_searches),
+                Vec::with_capacity(num_searches),
+            ),
+            |mut acc, x| {
+                let x = x?;
+                acc.0.push(x.0);
+                acc.1.push(x.1);
+                Ok::<_, Box<EvalAltResult>>(acc)
+            },
+        )?;
+
+    let re = regex::RegexSetBuilder::new(&searches)
+        .case_insensitive(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut results = HashSet::default();
+    autotag_block_and_children(page, &mut results, start_block as usize, &re, &tags)?;
+
+    let results = results
+        .into_iter()
+        .map(Dynamic::from)
+        .collect::<Vec<Dynamic>>();
+
+    Ok(results)
+}
+
+fn autotag_block_and_children(
+    page: &Arc<Mutex<ParsedPage>>,
+    results: &mut HashSet<String>,
+    block_id: usize,
+    tags: &RegexSet,
+    matches: &[rhai::ImmutableString],
+) -> Result<(), Box<EvalAltResult>> {
+    let children = {
+        let p = page.lock().unwrap();
+        let block = p
+            .blocks
+            .get(&block_id)
+            .ok_or_else(|| format!("Could not find block {block_id}"))?;
+
+        for m in tags.matches(&block.string) {
+            let tag = &matches[m];
+            results.insert(tag.clone().into_owned());
+        }
+
+        block.children.clone()
+    };
+
+    for child in children {
+        autotag_block_and_children(page, results, child, tags, matches)?;
+    }
+
+    Ok(())
 }
 
 create_enum!(allow_embed_module : super::AllowEmbed => Default, Yes, No);
@@ -428,56 +532,73 @@ def_package! {
 }
 
 pub fn run_script_on_page(
-    engine: &mut Engine,
+    package: &ParsePackage,
     ast: &AST,
     page: ParsedPage,
 ) -> Result<(PageConfig, ParsedPage)> {
-    let page_config = {
-        let page_block = page.blocks.get(&page.root_block).expect("Block must exist");
-        let title = page_block
-            .page_title
-            .clone()
-            .expect("Page title must exist");
+    let mut engine = Engine::new_raw();
 
-        let slug = title_to_slug(&title);
+    engine.on_print(|x| println!("script: {x}"));
+    engine.on_debug(|x, _src, pos| {
+        println!("script:{pos:?}: {x}");
+    });
 
-        PageConfig {
-            include: true,
-            path_base: String::new(),
-            path_name: String::new(),
-            url_base: String::new(),
-            url_name: slug,
-            title,
-            template: TemplateSelection::Default,
-            is_journal: page_block.is_journal,
-            attrs: page_block.attrs.clone(),
-            tags: page_block.tags.clone(),
-            allow_embedding: AllowEmbed::Default,
-            root_block: page.root_block,
-        }
+    package.register_into_engine(&mut engine);
+
+    let page_block = page.blocks.get(&page.root_block).expect("Block must exist");
+    let title = page_block
+        .page_title
+        .clone()
+        .expect("Page title must exist");
+
+    let slug = title_to_slug(&title);
+
+    let page_config = PageConfig {
+        include: false,
+        path_base: String::new(),
+        path_name: String::new(),
+        url_base: String::new(),
+        url_name: slug,
+        title,
+        template: TemplateSelection::Default,
+        is_journal: page_block.is_journal,
+        attrs: page_block.attrs.clone(),
+        tags: page_block.tags.clone(),
+        allow_embedding: AllowEmbed::Default,
+        root_block: page.root_block,
     };
 
-    let page_object = PageObject {
-        config: page_config,
-        page: Arc::new(Mutex::new(page)),
-    };
+    let page = Arc::new(Mutex::new(page));
 
-    let dy = Dynamic::from(page_object).into_shared();
+    let page_dy = Dynamic::from(page_config).into_shared();
     let mut scope = Scope::new();
-    scope.push_dynamic("page", dy.clone());
+    scope.push_dynamic("page", page_dy.clone());
+
+    {
+        let page = page.clone();
+        engine.register_fn("autotag", move |input: rhai::Map, start_block: i64| {
+            autotag(&page, input, start_block)
+        });
+    }
+
+    {
+        let page = page.clone();
+        engine.register_fn(
+            "each_block",
+            move |context: NativeCallContext, max_depth: i64, callback: rhai::FnPtr| {
+                each_block(context, &page, max_depth, callback)
+            },
+        );
+    }
 
     engine
         .run_ast_with_scope(&mut scope, ast)
         .map_err(|e| eyre!("{e:?}"))?;
 
     drop(scope);
-    let page_object = dy.cast::<PageObject>();
+    drop(engine);
 
-    Ok((
-        page_object.config,
-        Arc::try_unwrap(page_object.page)
-            .unwrap()
-            .into_inner()
-            .unwrap(),
-    ))
+    let page_config = page_dy.cast::<PageConfig>();
+    let page = Arc::try_unwrap(page).unwrap().into_inner().unwrap();
+    Ok((page_config, page))
 }
