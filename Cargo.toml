@@ -1,6 +1,6 @@
 [package]
 name = "export-logseq-notes"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Daniel Imfeld <daniel@imfeld.dev>"]
 edition = "2021"
 
@@ -23,6 +23,7 @@ rhai = { version = "1.10.0", features = ["sync"] }
 serde = { version = "1.0.119", features = ["derive"] }
 serde_json = "1.0.61"
 smallvec = "1.6.1"
+smartstring = "1.0.1"
 structopt = "0.3.21"
 syntect = "5.0.0"
 toml = "0.5.8"
@@ -32,3 +33,6 @@ zip = "0.6.2"
 
 [dev-dependencies]
 indoc = "1.0.6"
+
+[profile.release]
+debug = 1

@@ -57,9 +57,6 @@ struct InputConfig {
     #[structopt(short, long, env, help = "Attribute that indicates tags for a page")]
     pub tags_attr: Option<String>,
 
-    #[structopt(long, env, help = "Tag a page with all included hashtags")]
-    pub use_all_hashtags: Option<bool>,
-
     #[structopt(
         long,
         env,
@@ -133,24 +130,12 @@ pub struct Config {
     pub script: PathBuf,
     pub product: PkmProduct,
     pub base_url: Option<String>,
-    // pub namespace_dirs: bool, // TODO
-    // pub include: Option<String>,
-    // pub bool_include_attr: Option<String>,
-    // pub also: Vec<String>,
-    // pub include_all: bool,
-    // pub daily_notes: DailyNotes,
-    // pub exclude: Vec<String>,
-    // pub exclude_tags: Vec<String>,
     pub omit_attributes: Vec<String>,
-    // pub include_blocks_with_tags: Vec<String>,
-    // pub include_blocks_with_prefix: Vec<String>,
     pub highlight_class_prefix: Option<String>,
     pub template: Option<PathBuf>,
     pub extension: String,
     pub tags_attr: Option<String>,
-    pub use_all_hashtags: bool,
     pub filter_link_only_blocks: bool,
-    // pub include_all_page_embeds: bool, // TODO
     pub class_bold: String,
     pub class_italic: String,
     pub class_strikethrough: String,
@@ -209,59 +194,23 @@ impl Config {
             }
         };
 
-        // let allow_daily_notes =
-        //     merge_default(cmdline_cfg.allow_daily_notes, file_cfg.allow_daily_notes);
-
-        // let only_daily_notes =
-        //     merge_default(cmdline_cfg.only_daily_notes, file_cfg.only_daily_notes);
-
-        // let daily_notes = match (allow_daily_notes, only_daily_notes) {
-        //     (_, true) => DailyNotes::Exclusive,
-        //     (true, false) => DailyNotes::Allow,
-        //     (false, false) => DailyNotes::Deny,
-        // };
-
         let mut cfg = Config {
             path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             script: merge_required("script", cmdline_cfg.script, file_cfg.script)?,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
-            // namespace_dirs: merge_default(cmdline_cfg.namespace_dirs, file_cfg.namespace_dirs),
-            // include: cmdline_cfg.include.or(file_cfg.include),
-            // bool_include_attr: cmdline_cfg.bool_include_attr.or(file_cfg.bool_include_attr),
-            // also: merge_default(cmdline_cfg.also, file_cfg.also),
-            // include_all: merge_default(cmdline_cfg.include_all, file_cfg.include_all),
-            // daily_notes,
-            // exclude: merge_default(cmdline_cfg.exclude, file_cfg.exclude),
-            // exclude_tags: merge_default(cmdline_cfg.exclude_tags, file_cfg.exclude_tags),
             omit_attributes: merge_default(cmdline_cfg.omit_attributes, file_cfg.omit_attributes),
-            // include_blocks_with_tags: merge_default(
-            //     cmdline_cfg.include_blocks_with_tags,
-            //     file_cfg.include_blocks_with_tags,
-            // ),
-            // include_blocks_with_prefix: merge_default(
-            //     cmdline_cfg.include_blocks_with_prefix,
-            //     file_cfg.include_blocks_with_prefix,
-            // ),
             highlight_class_prefix: cmdline_cfg
                 .highlight_class_prefix
                 .or(file_cfg.highlight_class_prefix),
             template: cmdline_cfg.template.or(file_cfg.template),
             extension: merge_default(cmdline_cfg.extension, file_cfg.extension),
             tags_attr: cmdline_cfg.tags_attr.or(file_cfg.tags_attr),
-            use_all_hashtags: merge_default(
-                cmdline_cfg.use_all_hashtags,
-                file_cfg.use_all_hashtags,
-            ),
             filter_link_only_blocks: merge_default(
                 cmdline_cfg.filter_link_only_blocks,
                 file_cfg.filter_link_only_blocks,
             ),
-            // include_all_page_embeds: merge_default(
-            //     cmdline_cfg.include_all_page_embeds,
-            //     file_cfg.include_all_page_embeds,
-            // ),
             class_bold: merge_default(cmdline_cfg.class_bold, file_cfg.class_bold),
             class_italic: merge_default(cmdline_cfg.class_italic, file_cfg.class_italic),
             class_strikethrough: merge_default(
@@ -300,25 +249,6 @@ impl Config {
             class_heading3: merge_default(cmdline_cfg.class_heading3, file_cfg.class_heading3),
             class_heading4: merge_default(cmdline_cfg.class_heading4, file_cfg.class_heading4),
         };
-
-        // For environment variables, handle comma separated strings for vectors
-        // cfg.also = cfg
-        //     .also
-        //     .iter()
-        //     .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
-        //     .collect::<Vec<_>>();
-
-        // cfg.exclude = cfg
-        //     .exclude
-        //     .iter()
-        //     .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
-        //     .collect::<Vec<_>>();
-
-        // cfg.exclude_tags = cfg
-        //     .exclude_tags
-        //     .iter()
-        //     .flat_map(|w| w.split(',').map(|t| String::from(t.trim())))
-        //     .collect::<Vec<_>>();
 
         // Make sure base url starts and ends with a slash
         cfg.base_url = cfg.base_url.map(|url| {

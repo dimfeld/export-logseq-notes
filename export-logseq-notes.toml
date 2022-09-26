@@ -25,33 +25,6 @@ highlight_class_prefix = "hljs-"
 
 ##### Control Included Pages #####
 
-# Include pages with this tag that are not otherwise excluded. This hashtag will be removed from the output
-include = "note-export"
-
-# Include pages where this attribute is present and has the value "true".
-# When include_all is set, this attribute can also be used to exclude a page if it is present with a non-"true" value.
-bool_include_attr = "public"
-
-# Set to true to include all pages, except daily notes and those excluded by the `exclude` setting.
-include_all = false
-
-# Allow daily notes to be included
-allow_daily_notes = false
-
-# Additional tags to indicate that a page should be included. These tags will not be removed
-# from the rendered output.
-also = [
-  "UI",
-  "Sermons",
-  "syntax-test"
-]
-
-# Pages that reference any of these tags will be excluded
-exclude = [
-  "Areas",
-  "CV"
-]
-
 
 ##### Tags Output ####
 
@@ -59,21 +32,11 @@ exclude = [
 # template to populate front matter for a CMS
 tags_attr = "Tags"
 
-# Use all hashtags in a page when gathering tags, not just values of the tags_attr
-use_all_hashtags = true
-
 # When gathering tags for a page template, ignore these tags
 # For example, your book note pages may have lines like this:
 # Tags:: #Books #[[In Progress]] #Finance
 # So you can add "Books" and "In Progress" here to prevent them from
 # being listed as tags for a page and cluttering up the tags.
-exclude_tags = [
-  "Books",
-  "In Progress",
-  "Done"
-]
-
-# Skip rendering blocks with these attributes. Their children, if any, will still render.
 omit_attributes = [
   "Progress",
   "Tags"
