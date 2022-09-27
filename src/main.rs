@@ -58,7 +58,7 @@ fn main() -> Result<()> {
         PkmProduct::Logseq => logseq::LogseqGraph::build(config.path.clone())?,
     };
 
-    let page_count = make_pages_from_script(
+    let (wrote, skipped) = make_pages_from_script(
         parsed_pages,
         content_style,
         explicit_ordering,
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
         &config,
     )?;
 
-    println!("Wrote {page_count} pages");
+    println!("Wrote {wrote} pages, skipped {skipped} up-to-date");
 
     Ok(())
 }

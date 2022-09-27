@@ -56,7 +56,7 @@ pub fn make_pages_from_script(
     mut templates: crate::template::DedupingTemplateRegistry,
     highlighter: &syntax_highlight::Highlighter,
     config: &Config,
-) -> Result<usize> {
+) -> Result<(usize, usize)> {
     let package = crate::script::ParsePackage::new();
     let mut parse_engine = Engine::new_raw();
     package.register_into_engine(&mut parse_engine);
@@ -243,33 +243,54 @@ pub fn make_pages_from_script(
                 .ok_or_else(|| eyre!("Failed to find template for page"))?;
             let full_page = handlebars.render(template_key, &template_data)?;
 
-            let mut writer = std::fs::File::create(&output_path)
-                .with_context(|| format!("Writing {}", output_path))?;
-            writer.write_all(full_page.as_bytes())?;
-            writer.flush()?;
+            let content_matches = match std::fs::read_to_string(&output_path) {
+                Ok(existing) => existing == full_page,
+                Err(_) => false,
+            };
 
-            println!("Wrote: \"{final_title}\" to {slug}");
+            if !content_matches {
+                let mut writer = std::fs::File::create(&output_path)
+                    .with_context(|| format!("Writing {}", output_path))?;
+                writer.write_all(full_page.as_bytes())?;
+                writer.flush()?;
+
+                println!("Wrote: \"{final_title}\" to {slug}");
+            }
 
             Ok::<_, eyre::Report>(Some((
                 output_path,
-                ManifestItem {
-                    slug,
-                    title: final_title.to_string(),
-                    uid: block.uid.clone(),
-                },
+                (
+                    content_matches,
+                    ManifestItem {
+                        slug,
+                        title: final_title.to_string(),
+                        uid: block.uid.clone(),
+                    },
+                ),
             )))
         })
         .filter_map(|p| p.transpose())
         // Use BTreeMap since it gets us sorted keys in the output, which is good for
         // minimizing Git churn on the manifest.
-        .collect::<Result<BTreeMap<_, _>>>()?;
+        .collect::<Result<Vec<_>>>()?;
+
+    let manifest_data = results
+        .iter()
+        .map(|(k, (_, manifest_item))| (k, manifest_item))
+        .collect::<BTreeMap<_, _>>();
 
     let manifest_path = config.output.join("manifest.json");
     let mut manifest_writer = std::fs::File::create(&manifest_path)
         .with_context(|| format!("Writing {}", manifest_path.to_string_lossy()))?;
-    serde_json::to_writer_pretty(&manifest_writer, &results)?;
+    serde_json::to_writer_pretty(&manifest_writer, &manifest_data)?;
     manifest_writer.flush()?;
     drop(manifest_writer);
 
-    Ok(results.len())
+    let skipped = results
+        .iter()
+        .filter(|(_, (content_matched, _))| *content_matched)
+        .count();
+    let wrote = results.len() - skipped;
+
+    Ok((wrote, skipped))
 }
