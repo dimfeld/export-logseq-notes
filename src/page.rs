@@ -357,15 +357,15 @@ impl<'a, 'b> Page<'a, 'b> {
                 true,
                 true,
             ),
-            Expression::Todo { done } => (
-                format!(
-                    r##"<input type="checkbox" readonly="true" checked="{}" />"##,
-                    done
+            Expression::Todo { done } => {
+                let done = if done { "checked" } else { "" };
+
+                (
+                    format!(r##"<input type="checkbox" readonly="true" {done} />"##,).into(),
+                    false,
+                    true,
                 )
-                .into(),
-                false,
-                true,
-            ),
+            }
             Expression::Link(s) => (self.link_if_allowed(s, omit_unexported_links), true, true),
             Expression::MarkdownLink { title, url } => (
                 format!(

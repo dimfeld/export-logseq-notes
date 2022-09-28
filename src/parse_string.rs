@@ -150,6 +150,9 @@ fn brace_directive_contents(content_style: ContentStyle, input: &str) -> IResult
                     map(fixed_link_or_word("TODO"), |_| Expression::Todo {
                         done: false,
                     }),
+                    map(fixed_link_or_word("DOING"), |_| Expression::Todo {
+                        done: false,
+                    }),
                     map(fixed_link_or_word("DONE"), |_| Expression::Todo {
                         done: true,
                     }),
