@@ -3,6 +3,8 @@
 This is a program to take a Logseq directory and convert it into web pages. I'm currently using this to
 populate the [notes section of my website](https://imfeld.dev/notes).
 
+Note: Most everything below is out of date. I'll be rewriting the README in the near future to accurately reflect the addition of scripting and other new capabilities.
+
 ## Features
 
 - Selective export: Include and exclude pages based on presence of tags in each page
