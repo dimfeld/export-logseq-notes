@@ -109,6 +109,21 @@ if page.is_journal {
   let allow = include && !exclude;
   page.include = allow;
   if allow {
+    // Handle namespaced pages, setting the final element as the title and adding the other elements as tags.
+    let title = page.title.split("/");
+    if title.len > 1 {
+      page.title = title.pop();
+      for t in title {
+        if t == "Book" {
+          page.add_tag("Books");
+        } else if t == "Article" {
+          page.add_tag("Articles")
+        } else if t == "Project" {
+          page.add_tag("Projects")
+        }
+      }
+    }
+
     // Remove all these tags from the page.
     let omit_tags = [
       "Articles",

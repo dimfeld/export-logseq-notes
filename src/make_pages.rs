@@ -11,12 +11,9 @@ use rayon::prelude::*;
 use rhai::packages::Package;
 use rhai::Engine;
 use serde::Serialize;
-use smallvec::SmallVec;
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Serialize, Debug)]
 struct TemplateArgs<'a> {
@@ -63,7 +60,6 @@ pub fn make_pages_from_script(
 
     let ast = parse_engine
         .compile_file(config.script.clone())
-        .map_err(|e| eyre!("{e:?}"))
         .wrap_err("Parsing script")?;
 
     let mut pages = pages
@@ -206,32 +202,12 @@ pub fn make_pages_from_script(
             tags.sort_by_key(|k| k.to_lowercase());
             tags.dedup();
 
-            let lower_tags = tags
-                .iter()
-                .map(|t| t.to_lowercase())
-                .collect::<HashSet<_>>();
-
             // println!("{:?} {:?}", title, tags);
-
-            let mut popped = false;
-            let mut title_components = page.title.split('/').collect::<SmallVec<[&str; 3]>>();
-            while title_components.len() > 1
-                && lower_tags.contains(&title_components[0].to_lowercase())
-            {
-                popped = true;
-                title_components.remove(0);
-            }
-
-            let final_title = if popped {
-                Cow::from(title_components.iter().join("/"))
-            } else {
-                Cow::from(&page.title)
-            };
 
             let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
 
             let template_data = TemplateArgs {
-                title: final_title.as_ref(),
+                title: page.title.as_str(),
                 body: &rendered,
                 tags,
                 created_time: block.create_time,
@@ -254,7 +230,7 @@ pub fn make_pages_from_script(
                 writer.write_all(full_page.as_bytes())?;
                 writer.flush()?;
 
-                println!("Wrote: \"{final_title}\" to {slug}");
+                println!("Wrote: \"{title}\" to {slug}", title = page.title);
             }
 
             Ok::<_, eyre::Report>(Some((
@@ -262,8 +238,8 @@ pub fn make_pages_from_script(
                 (
                     content_matches,
                     ManifestItem {
+                        title: page.title.to_string(),
                         slug,
-                        title: final_title.to_string(),
                         uid: block.uid.clone(),
                     },
                 ),
