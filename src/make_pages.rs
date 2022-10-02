@@ -102,10 +102,22 @@ pub fn make_pages_from_script(
     let pages_by_title = pages
         .iter()
         .map(|(p, blocks, slug)| {
+            // Get the original title, not whatever the script might have changed it to, so that
+            // links go to the correct place.
+            let orig_title = blocks
+                .blocks
+                .get(&p.root_block)
+                .unwrap()
+                .page_title
+                .as_deref()
+                .unwrap_or("")
+                .to_string();
+
             (
-                p.title.clone(),
+                orig_title,
                 IdSlugUid {
                     id: p.root_block,
+                    output_title: p.title.clone(),
                     include: p.include,
                     allow_embed: match (p.include, p.allow_embedding) {
                         (true, AllowEmbed::Yes | AllowEmbed::Default) => true,

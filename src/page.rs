@@ -20,6 +20,7 @@ pub struct TitleSlugUid {
 
 pub struct IdSlugUid {
     pub id: usize,
+    pub output_title: String,
     pub slug: String,
     pub uid: String,
     pub include: bool,
@@ -61,24 +62,41 @@ fn render_opening_tag(tag: &str, class: &str) -> String {
 }
 
 impl<'a, 'b> Page<'a, 'b> {
-    fn link_if_allowed(&self, s: &'a str, omit_unexported_links: bool) -> StringBuilder<'a> {
+    fn link_if_allowed_with_label(
+        &self,
+        page: &'a str,
+        label: Option<&'a str>,
+        omit_unexported_links: bool,
+    ) -> StringBuilder<'a> {
         self.pages_by_title
-            .get(s)
+            .get(page)
             .filter(|p| p.include)
-            .map(|IdSlugUid { slug, .. }| {
-                StringBuilder::from(format!(
-                    r##"<a href="{slug}">{title}</a>"##,
-                    title = html::escape(s),
-                    slug = html::escape(slug)
-                ))
-            })
+            .map(
+                |IdSlugUid {
+                     id,
+                     slug,
+                     output_title,
+                     ..
+                 }| {
+                    let output_label = label.unwrap_or_else(|| output_title.as_str());
+                    StringBuilder::from(format!(
+                        r##"<a href="{slug}">{title}</a>"##,
+                        title = html::escape(output_label),
+                        slug = html::escape(slug)
+                    ))
+                },
+            )
             .unwrap_or_else(|| {
                 if omit_unexported_links {
                     StringBuilder::Empty
                 } else {
-                    StringBuilder::from(html::escape(s))
+                    StringBuilder::from(html::escape(label.unwrap_or(page)))
                 }
             })
+    }
+
+    fn link_if_allowed(&self, s: &'a str, omit_unexported_links: bool) -> StringBuilder<'a> {
+        self.link_if_allowed_with_label(s, None, omit_unexported_links)
     }
 
     fn render_block_ref(
@@ -367,7 +385,12 @@ impl<'a, 'b> Page<'a, 'b> {
                 )
             }
             Expression::Link(s) => (self.link_if_allowed(s, omit_unexported_links), true, true),
-            Expression::MarkdownLink { title, url } => (
+            Expression::MarkdownInternalLink { page, label } => (
+                self.link_if_allowed_with_label(page, Some(label), false),
+                true,
+                true,
+            ),
+            Expression::MarkdownExternalLink { title, url } => (
                 format!(
                     r##"<a href="{url}">{title}</a>"##,
                     title = html::escape(title),

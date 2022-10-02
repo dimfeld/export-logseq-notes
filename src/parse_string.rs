@@ -35,7 +35,11 @@ pub enum Expression<'a> {
     SingleBacktick(&'a str),
     Hashtag(&'a str, bool),
     Link(&'a str),
-    MarkdownLink {
+    MarkdownInternalLink {
+        label: &'a str,
+        page: &'a str,
+    },
+    MarkdownExternalLink {
         title: &'a str,
         url: &'a str,
     },
@@ -245,9 +249,15 @@ fn directive(content_style: ContentStyle, input: &str) -> IResult<&str, Expressi
         map(link, Expression::Link),
         map(block_ref, Expression::BlockRef),
         map(image, |(alt, url)| Expression::Image { alt, url }),
-        map(markdown_link, |(title, url)| Expression::MarkdownLink {
-            title,
-            url,
+        map(markdown_link, |(title, url)| {
+            if let Ok((_, url)) = (all_consuming(link))(url) {
+                Expression::MarkdownInternalLink {
+                    label: title,
+                    page: url,
+                }
+            } else {
+                Expression::MarkdownExternalLink { title, url }
+            }
         }),
         map_opt(
             cond(
