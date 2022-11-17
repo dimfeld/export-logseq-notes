@@ -55,7 +55,9 @@ fn main() -> Result<()> {
             }
             roam_edn::graph_from_roam_edn(&raw_data)?
         }
-        PkmProduct::Logseq => logseq::LogseqGraph::build(config.path.clone())?,
+        PkmProduct::Logseq => {
+            logseq::LogseqGraph::build(config.path.clone(), config.track_logseq_timestamps)?
+        }
     };
 
     let (wrote, skipped) = make_pages_from_script(
