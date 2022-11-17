@@ -39,7 +39,7 @@ pub struct Page<'a, 'b> {
     pub title: String,
     pub slug: &'a str,
 
-    pub latest_found_edit_time: Cell<usize>,
+    pub latest_found_edit_time: Cell<u64>,
 
     pub graph: &'a Graph,
     pub config: &'a Config,

@@ -20,8 +20,8 @@ struct TemplateArgs<'a> {
     title: &'a str,
     body: &'a str,
     tags: Vec<&'a str>,
-    created_time: usize,
-    edited_time: usize,
+    created_time: u64,
+    edited_time: u64,
 }
 
 pub fn title_to_slug(s: &str) -> String {

@@ -9,6 +9,7 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
+    time::SystemTime,
 };
 
 use ahash::{HashMap, HashMapExt};
@@ -20,7 +21,7 @@ use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    graph::{AttrList, Block, BlockInclude, Graph, ParsedPage, ViewType},
+    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
     parse_string::ContentStyle,
 };
 
@@ -48,8 +49,8 @@ pub struct JsonBlock {
 }
 
 pub struct PageMetadata {
-    created_time: usize,
-    edited_time: usize,
+    created_time: u64,
+    edited_time: u64,
 }
 
 pub struct LogseqGraph {
@@ -82,8 +83,16 @@ impl LogseqGraph {
 
     fn read_page_metadata(&mut self) -> Result<()> {
         let metadata_path = self.root.join("logseq").join("pages-metadata.edn");
-        let source = std::fs::read_to_string(&metadata_path)
-            .with_context(|| format!("Reading metadata file {metadata_path:?}"))?;
+        let source = match std::fs::read_to_string(&metadata_path) {
+            Ok(data) => data,
+            Err(_) => {
+                // pages-metadata.edn no longer exists with newer versions of Logseq, so that's
+                // fine.
+                self.page_metadata = HashMap::default();
+                return Ok(());
+            }
+        };
+
         let data = Edn::from_str(source.as_str())?;
 
         let blocks = match data {
@@ -104,11 +113,11 @@ impl LogseqGraph {
                 let created_time = data
                     .get(":block/created-at")
                     .and_then(|v| v.to_uint())
-                    .unwrap_or(0);
+                    .unwrap_or(0) as u64;
                 let edited_time = data
                     .get(":block/updated-at")
                     .and_then(|v| v.to_uint())
-                    .unwrap_or(0);
+                    .unwrap_or(0) as u64;
 
                 Ok((
                     block_name,
@@ -172,20 +181,43 @@ impl LogseqGraph {
             .map(|t| t.to_lowercase())
             .and_then(|t| self.page_metadata.get(&t));
 
-        let default_date = if is_journal {
+        let (default_time, create_time) = if is_journal {
             let mut i = title.as_deref().unwrap_or_default().splitn(3, '-');
             let y = i.next().map(|x| x.parse::<i32>());
             let m = i.next().map(|x| x.parse::<u32>());
             let d = i.next().map(|x| x.parse::<u32>());
 
-            match (y, m, d) {
+            let default_time = match (y, m, d) {
                 (Some(Ok(y)), Some(Ok(m)), Some(Ok(d))) => chrono::NaiveDate::from_ymd_opt(y, m, d)
-                    .map(|d| d.and_hms(0, 0, 0).timestamp_millis() as usize)
+                    .map(|d| d.and_hms(0, 0, 0).timestamp_millis() as u64)
                     .unwrap_or_default(),
                 _ => 0,
-            }
+            };
+
+            // For journals we always return the journal's date as the create date
+            (default_time, default_time)
         } else {
-            0
+            let default_time = 0;
+            let create_time = meta
+                .map(|m| m.created_time)
+                .or(page.created_time)
+                .unwrap_or(default_time);
+            (default_time, create_time)
+        };
+
+        // If the updated time is the same as the created time, and we also have metadata for the page,
+        // then just use the metadata since it was probably more correct. This is kind of a gross
+        // heuristic but actually does help with some legacy pages.
+        let edit_time = match (
+            page.created_time.is_some(),
+            page.updated_time == page.created_time,
+            meta,
+        ) {
+            (true, true, Some(meta)) => std::cmp::max(meta.edited_time, create_time),
+            _ => page
+                .updated_time
+                .or_else(|| meta.map(|m| m.edited_time))
+                .unwrap_or(default_time),
         };
 
         let page_block = Block {
@@ -198,8 +230,8 @@ impl LogseqGraph {
             string: String::new(),
             heading: 0,
             view_type,
-            edit_time: meta.map(|m| m.edited_time).unwrap_or(default_date),
-            create_time: meta.map(|m| m.created_time).unwrap_or(default_date),
+            edit_time,
+            create_time,
             children: SmallVec::new(),
 
             tags,
@@ -251,20 +283,46 @@ struct LogseqRawPage {
     base_id: usize,
     attrs: HashMap<String, AttrList>,
     blocks: Vec<LogseqRawBlock>,
+    created_time: Option<u64>,
+    updated_time: Option<u64>,
 }
 
 fn read_logseq_md_file(filename: &Path, is_journal: bool) -> Result<LogseqRawPage> {
     let file =
         File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
+    let meta = file
+        .metadata()
+        .with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
+
+    let updated = meta
+        .modified()
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .ok();
+    let created = meta
+        .created()
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .ok();
+
     let mut lines = put_back(BufReader::new(file).lines());
-    parse_logseq_file(filename, &mut lines, is_journal)
+    let (attrs, blocks) = parse_logseq_file(filename, &mut lines, is_journal)?;
+    Ok(LogseqRawPage {
+        base_id: 0,
+        attrs,
+        blocks,
+        created_time: created,
+        updated_time: updated,
+    })
 }
 
 fn parse_logseq_file(
     filename: &Path,
     lines: &mut LinesIterator<impl BufRead>,
     is_journal: bool,
-) -> Result<LogseqRawPage> {
+) -> Result<(HashMap<String, AttrList>, Vec<LogseqRawBlock>)> {
     let page_attrs_list = page_header::parse_page_header(lines)?;
 
     // Create a block containing the page header attributes so that it will show up in the output
@@ -308,9 +366,5 @@ fn parse_logseq_file(
         page_attrs.insert(String::from("title"), smallvec![title]);
     }
 
-    Ok(LogseqRawPage {
-        base_id: 0,
-        attrs: page_attrs,
-        blocks,
-    })
+    Ok((page_attrs, blocks))
 }

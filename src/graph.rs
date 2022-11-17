@@ -76,8 +76,8 @@ pub struct Block {
     pub heading: usize,
     pub view_type: ViewType,
 
-    pub edit_time: usize,
-    pub create_time: usize,
+    pub edit_time: u64,
+    pub create_time: u64,
 }
 
 #[derive(Debug)]

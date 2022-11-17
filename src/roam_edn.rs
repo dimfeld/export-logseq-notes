@@ -8,7 +8,7 @@ use std::mem;
 use std::str::FromStr;
 
 use crate::{
-    graph::{Block, BlockInclude, Graph, ParsedPage, ViewType},
+    graph::{Block, BlockInclude, ParsedPage, ViewType},
     parse_string::ContentStyle,
 };
 
@@ -62,10 +62,10 @@ struct RoamBlock {
 
     /** An index into the graph's `emails` vector */
     pub create_email: usize,
-    pub create_time: usize,
+    pub create_time: u64,
     /** An index into the graph's `emails` vector */
     pub edit_email: usize,
-    pub edit_time: usize,
+    pub edit_time: u64,
 }
 
 #[derive(Debug)]
@@ -208,13 +208,13 @@ impl RoamGraph {
         self.blocks.insert(block.id, block);
     }
 
-    fn fix_and_get_block_create_time(&mut self, block_id: usize) -> usize {
+    fn fix_and_get_block_create_time(&mut self, block_id: usize) -> u64 {
         let block = self.blocks.get(&block_id).unwrap();
         if block.create_time > 0 {
             return block.create_time;
         }
 
-        let mut min_create_time = usize::max_value();
+        let mut min_create_time = u64::max_value();
         let children = block.children.clone();
         for block_id in children {
             let child_create_time = self.fix_and_get_block_create_time(block_id);
@@ -323,8 +323,10 @@ impl RoamGraph {
                     current_block.create_email = graph.get_email_index(v)
                 }
                 (":edit/email", Edn::Str(v)) => current_block.edit_email = graph.get_email_index(v),
-                (":create/time", value) => current_block.create_time = value.to_uint().unwrap(),
-                (":edit/time", value) => current_block.edit_time = value.to_uint().unwrap(),
+                (":create/time", value) => {
+                    current_block.create_time = value.to_uint().unwrap() as u64
+                }
+                (":edit/time", value) => current_block.edit_time = value.to_uint().unwrap() as u64,
                 (":entity/attrs", Edn::Set(attrs)) => {
                     // List of attributes referenced within a page
 
