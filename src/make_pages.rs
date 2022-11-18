@@ -269,7 +269,7 @@ pub fn make_pages_from_script(
 
     let manifest_path = config.output.join("manifest.json");
     let mut manifest_writer = std::fs::File::create(&manifest_path)
-        .with_context(|| format!("Writing {}", manifest_path.to_string_lossy()))?;
+        .with_context(|| format!("Writing {}", manifest_path.display()))?;
     serde_json::to_writer_pretty(&manifest_writer, &manifest_data)?;
     manifest_writer.flush()?;
     drop(manifest_writer);

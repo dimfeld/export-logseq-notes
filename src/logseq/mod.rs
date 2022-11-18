@@ -339,7 +339,7 @@ impl LogseqGraph {
                     .strip_prefix(&self.root)
                     .unwrap_or(&page.path)
                     .to_string_lossy()
-                    .to_string();
+                    .into_owned();
 
                 let db_update = MetadataDbPageUpdate {
                     match_type: None,
@@ -472,10 +472,10 @@ fn read_logseq_md_file(
     is_journal: bool,
 ) -> Result<LogseqRawPage> {
     let mut file =
-        File::open(filename).with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
+        File::open(filename).with_context(|| format!("Reading {}", filename.display()))?;
     let meta = file
         .metadata()
-        .with_context(|| format!("Reading {}", filename.to_string_lossy()))?;
+        .with_context(|| format!("Reading {}", filename.display()))?;
 
     let updated = meta
         .modified()
@@ -552,7 +552,10 @@ fn parse_logseq_file(
     if !page_attrs.contains_key("title") {
         let mut title = filename
             .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
+            .map(|s| {
+                let s = s.to_string_lossy().into_owned();
+                urlencoding::decode(&s).map(|s| s.into_owned()).unwrap_or(s)
+            })
             .expect("file title");
 
         if is_journal {
