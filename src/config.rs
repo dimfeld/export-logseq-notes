@@ -15,6 +15,12 @@ struct InputConfig {
     pub config: Option<PathBuf>,
 
     #[structopt(
+        long,
+        help = "Disable tracking of Logseq timestamps in a separate database"
+    )]
+    pub no_track_logseq_timestamps: Option<bool>,
+
+    #[structopt(
         short,
         long,
         env,
@@ -126,6 +132,8 @@ impl FromStr for PkmProduct {
 
 pub struct Config {
     pub path: PathBuf,
+    /// Track Logseq timestamps in a separate database. Defaults to true.
+    pub track_logseq_timestamps: bool,
     pub output: PathBuf,
     pub script: PathBuf,
     pub product: PkmProduct,
@@ -164,6 +172,10 @@ fn merge_default<T: Default>(first: Option<T>, second: Option<T>) -> T {
     first.or(second).unwrap_or_default()
 }
 
+fn merge_or<T>(first: Option<T>, second: Option<T>, fallback: T) -> T {
+    first.or(second).unwrap_or(fallback)
+}
+
 impl Config {
     pub fn load() -> Result<Config> {
         dotenv::dotenv().ok();
@@ -196,6 +208,11 @@ impl Config {
 
         let mut cfg = Config {
             path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
+            track_logseq_timestamps: !merge_or(
+                cmdline_cfg.no_track_logseq_timestamps,
+                file_cfg.no_track_logseq_timestamps,
+                false,
+            ),
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             script: merge_required("script", cmdline_cfg.script, file_cfg.script)?,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
