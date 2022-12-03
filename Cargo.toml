@@ -22,6 +22,7 @@ r2d2 = "0.8.10"
 r2d2_sqlite = { version = "0.21.0", features = ["bundled"] }
 rayon = "1.5.0"
 regex = "1.5.6"
+reqwest = { version = "0.11.13", features = ["json", "serde_json"] }
 rhai = { version = "1.10.0", features = ["sync"] }
 rusqlite = { version = "0.28.0", features = ["bundled"] }
 rusqlite_migration = "1.0.1"

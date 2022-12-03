@@ -1,7 +1,7 @@
+use std::{path::PathBuf, str::FromStr};
+
 use eyre::{eyre, Result, WrapErr};
 use serde::Deserialize;
-use std::path::PathBuf;
-use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Debug, Default, StructOpt)]
@@ -150,17 +150,17 @@ pub struct Config {
     pub pic_store: Option<PicStoreConfig>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PicStoreConfig {
     /// The URL of the Pic Store instance to use.
-    url: String,
+    pub url: String,
     /// The API key to use for requests to Pic Store.
-    api_key: String,
+    pub api_key: String,
     /// The location prefix to use for Pic Store images. This will stack on top of any prefixes
     /// configured in the project or upload profile.
-    location_prefix: Option<String>,
+    pub location_prefix: Option<String>,
     /// The upload profile to use, if not the default one.
-    upload_profile: Option<String>,
+    pub upload_profile: Option<String>,
 }
 
 fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<T> {

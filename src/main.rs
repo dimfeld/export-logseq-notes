@@ -7,6 +7,7 @@ mod page;
 mod parse_string;
 #[cfg(test)]
 mod parse_string_tests;
+mod pic_store;
 mod roam_edn;
 mod script;
 mod string_builder;
