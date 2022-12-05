@@ -1,7 +1,4 @@
-use crate::{
-    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
-    make_pages::title_to_slug,
-};
+use std::sync::{Arc, Mutex};
 
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result};
@@ -13,7 +10,12 @@ use rhai::{
     Scope, AST,
 };
 use smallvec::smallvec;
-use std::sync::{Arc, Mutex};
+
+use crate::{
+    content::BlockContent,
+    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
+    make_pages::title_to_slug,
+};
 
 type SmartString = smartstring::SmartString<smartstring::LazyCompact>;
 
@@ -114,7 +116,7 @@ impl BlockConfig {
     fn from_block(block: &Block) -> Self {
         BlockConfig {
             id: block.id,
-            string: block.string.clone(),
+            string: block.contents.borrow_string().clone(),
             heading: block.heading,
             view_type: block.view_type,
             include_type: block.include_type,
@@ -123,14 +125,17 @@ impl BlockConfig {
         }
     }
 
-    fn apply_to_block(self, block: &mut Block) {
+    fn apply_to_block(self, block: &mut Block) -> Result<()> {
         if self.edited {
-            block.string = self.string;
+            block.contents =
+                BlockContent::new_parsed(block.contents.borrow_style().clone(), self.string)?;
             block.heading = self.heading;
             block.view_type = self.view_type;
             block.include_type = self.include_type;
             block.tags = self.tags
         }
+
+        Ok(())
     }
 }
 
@@ -416,7 +421,12 @@ fn walk_block(
 
     let mut p = page.lock().unwrap();
     let block = p.blocks.get_mut(&block_id).unwrap();
-    block_config.apply_to_block(block);
+    block_config.apply_to_block(block).map_err(|e| {
+        Box::new(EvalAltResult::ErrorSystem(
+            String::from("Invalid block markdown"),
+            e.into(),
+        ))
+    })?;
 
     let next_depth = depth + 1;
     if next_depth <= max_depth {
@@ -494,7 +504,7 @@ fn autotag_block_and_children(
             .get(&block_id)
             .ok_or_else(|| format!("Could not find block {block_id}"))?;
 
-        for m in tags.matches(&block.string) {
+        for m in tags.matches(block.contents.borrow_string()) {
             let tag = &matches[m];
             results.insert(tag.clone().into_owned());
         }

@@ -6,18 +6,17 @@ use nom::{
     bytes::complete::{tag, take_while, take_while1},
     character::complete::multispace0,
     combinator::{all_consuming, map, opt},
-    multi::separated_list0,
     sequence::{preceded, terminated, tuple},
     IResult,
 };
 use smallvec::SmallVec;
 
+use super::{attrs::parse_attr_line, LinesIterator};
 use crate::{
+    content::BlockContent,
     graph::{AttrList, ViewType},
     parse_string::{self, Expression},
 };
-
-use super::{attrs::parse_attr_line, LinesIterator};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Line<'a> {
@@ -34,7 +33,7 @@ pub struct LogseqRawBlock {
     pub id: String,
     pub parent_idx: Option<usize>,
     pub header_level: u32,
-    pub contents: String,
+    pub contents: BlockContent,
     pub view_type: ViewType,
     pub indent: u32,
     pub tags: AttrList,
@@ -145,11 +144,10 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
     }
 
     let contents = line_contents.join("\n");
-    let parsed = parse_string::parse(parse_string::ContentStyle::Logseq, contents.as_str())
-        .map_err(|e| eyre!("{e:?}"))?;
+    let parsed = BlockContent::new_parsed(parse_string::ContentStyle::Logseq, contents)?;
 
     let mut tags = AttrList::new();
-    for ex in parsed {
+    for ex in parsed.borrow_parsed() {
         if let Expression::Hashtag(tag, _) = ex {
             tags.push(tag.to_string());
         }
@@ -162,7 +160,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
         parent_idx: None,
         view_type,
         indent,
-        contents,
+        contents: parsed,
         tags,
     };
 

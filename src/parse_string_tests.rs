@@ -234,7 +234,7 @@ fn markdown_link() {
         input,
         vec![
             Expression::Text("For actually communicating, "),
-            Expression::MarkdownLink {
+            Expression::MarkdownExternalLink {
                 title: "spiped",
                 url: "https://www.tarsnap.com/spiped.html",
             },
@@ -402,7 +402,7 @@ fn real_world_7() {
         input,
         vec![
             Expression::Text("("),
-            Expression::MarkdownLink {
+            Expression::MarkdownExternalLink {
                 title: "Location 1062",
                 url: "https://readwise.io/to_kindle?action=open&asin=2232&location=1062",
             },

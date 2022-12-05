@@ -1,8 +1,10 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_until, take_while1},
-    character::complete::{char, multispace0},
-    character::{complete::multispace1, is_newline},
+    character::{
+        complete::{char, multispace0, multispace1},
+        is_newline,
+    },
     combinator::{all_consuming, cond, map, map_opt, map_parser, opt},
     error::context,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
@@ -355,10 +357,10 @@ fn logseq_todo(input: &str) -> IResult<&str, Expression> {
     ))(input)
 }
 
-pub fn parse(
+pub fn parse<'a>(
     content_style: ContentStyle,
-    input: &str,
-) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
+    input: &'a str,
+) -> Result<Vec<Expression<'a>>, nom::Err<nom::error::Error<&'a str>>> {
     alt((
         map(all_consuming(tag("---")), |_| vec![Expression::HRule]),
         map(

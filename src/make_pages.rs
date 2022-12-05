@@ -1,19 +1,20 @@
-use crate::config::Config;
-use crate::graph::{Graph, ParsedPage};
-use crate::page::{IdSlugUid, ManifestItem, Page, TitleSlugUid};
-use crate::parse_string::ContentStyle;
-use crate::script::{run_script_on_page, AllowEmbed, TemplateSelection};
-use crate::syntax_highlight;
+use std::{collections::BTreeMap, io::Write, path::PathBuf};
+
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
 use itertools::Itertools;
 use rayon::prelude::*;
-use rhai::packages::Package;
-use rhai::Engine;
+use rhai::{packages::Package, Engine};
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::io::Write;
-use std::path::PathBuf;
+
+use crate::{
+    config::Config,
+    graph::{Graph, ParsedPage},
+    page::{IdSlugUid, ManifestItem, Page, TitleSlugUid},
+    parse_string::ContentStyle,
+    script::{run_script_on_page, AllowEmbed, TemplateSelection},
+    syntax_highlight,
+};
 
 #[derive(Serialize, Debug)]
 struct TemplateArgs<'a> {
@@ -200,7 +201,7 @@ pub fn make_pages_from_script(
 
             let block = graph.blocks.get(&page.id).unwrap();
 
-            let (rendered, hashtags) = page.render()?;
+            let rendered = page.render()?;
 
             if rendered.is_empty() {
                 return Ok(None);

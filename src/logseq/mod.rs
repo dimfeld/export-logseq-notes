@@ -22,14 +22,14 @@ use rusqlite::params;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::{
-    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
-    parse_string::ContentStyle,
-};
-
 use self::{
     blocks::LogseqRawBlock,
     db::{MetadataDb, MetadataDbPage, MetadataDbPageUpdate, PageMatchType},
+};
+use crate::{
+    content::BlockContent,
+    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
+    parse_string::ContentStyle,
 };
 
 #[derive(Clone, Copy, Deserialize, Debug)]
@@ -390,7 +390,7 @@ impl LogseqGraph {
             containing_page: page.base_id,
             page_title: title,
             is_journal,
-            string: String::new(),
+            contents: BlockContent::new_empty(ContentStyle::Logseq),
             heading: 0,
             view_type,
             create_time,
@@ -427,7 +427,7 @@ impl LogseqGraph {
                 create_time: 0,
                 edit_time: 0,
                 view_type: input.view_type,
-                string: input.contents,
+                contents: input.contents,
                 heading: input.header_level as usize,
                 is_journal,
                 page_title: None,
@@ -536,7 +536,7 @@ fn parse_logseq_file(
 
     for string in attrs_block_contents {
         let attrs_block = LogseqRawBlock {
-            contents: string,
+            contents: BlockContent::new_parsed(ContentStyle::Logseq, string)?,
             ..Default::default()
         };
         blocks.push(attrs_block);

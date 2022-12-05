@@ -4,10 +4,16 @@ use ahash::HashMap;
 use itertools::{put_back, Itertools};
 use smallvec::smallvec;
 
-use crate::graph::ViewType;
-use crate::logseq::LogseqRawPage;
+use crate::{
+    content::BlockContent,
+    graph::ViewType,
+    logseq::{blocks::LogseqRawBlock, LogseqRawPage},
+    parse_string::ContentStyle,
+};
 
-use crate::logseq::blocks::LogseqRawBlock;
+fn new_content(s: impl Into<String>) -> BlockContent {
+    BlockContent::new_parsed(ContentStyle::Logseq, s.into()).unwrap()
+}
 
 #[test]
 fn full_page() {
@@ -37,44 +43,44 @@ Tags:: Project
 
     let expected_blocks = vec![
         LogseqRawBlock {
-            contents: String::from("Tags:: Project"),
+            contents: new_content("Tags:: Project"),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             header_level: 1,
-            contents: String::from("Some tools"),
+            contents: new_content("Some tools"),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("Based on"),
+            contents: new_content("Based on"),
             view_type: ViewType::Document,
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("a book"),
+            contents: new_content("a book"),
             indent: 1,
             parent_idx: Some(2),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("another book"),
+            contents: new_content("another book"),
             indent: 1,
             parent_idx: Some(2),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("Data Model Graph"),
+            contents: new_content("Data Model Graph"),
             header_level: 2,
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("A mostly-DAG"),
+            contents: new_content("A mostly-DAG"),
             indent: 1,
             parent_idx: Some(5),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("because of some exceptions"),
+            contents: new_content("because of some exceptions"),
             id: String::from("93804e07-d826-44bc-94f4-18b07b0052b6"),
             indent: 1,
             parent_idx: Some(5),
@@ -82,26 +88,26 @@ Tags:: Project
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("Exception 1"),
+            contents: new_content("Exception 1"),
             indent: 2,
             parent_idx: Some(7),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("maybe not"),
+            contents: new_content("maybe not"),
             indent: 3,
             parent_idx: Some(8),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
             id: String::from("b4eb8b3b-9d09-4358-8e05-0d29e4301ecb"),
-            contents: String::from("Exception 2"),
+            contents: new_content("Exception 2"),
             indent: 2,
             parent_idx: Some(7),
             ..LogseqRawBlock::default()
         },
         LogseqRawBlock {
-            contents: String::from("Closing notes"),
+            contents: new_content("Closing notes"),
             ..LogseqRawBlock::default()
         },
     ];

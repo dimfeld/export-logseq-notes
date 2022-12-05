@@ -1,4 +1,5 @@
 mod config;
+mod content;
 mod graph;
 mod html;
 mod logseq;
@@ -13,14 +14,13 @@ mod script;
 mod string_builder;
 mod syntax_highlight;
 mod template;
+use std::{fs::File, io::Read};
+
 use config::Config;
 use eyre::{Result, WrapErr};
-use std::fs::File;
-use std::io::Read;
 use zip::read::ZipArchive;
 
-use crate::config::PkmProduct;
-use crate::make_pages::make_pages_from_script;
+use crate::{config::PkmProduct, make_pages::make_pages_from_script};
 
 fn main() -> Result<()> {
     color_eyre::install()?;

@@ -1,7 +1,10 @@
 use ahash::HashMap;
 use smallvec::SmallVec;
 
-use crate::parse_string::ContentStyle;
+use crate::{
+    content::BlockContent,
+    parse_string::{ContentStyle, Expression},
+};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
@@ -72,7 +75,7 @@ pub struct Block {
     pub attrs: HashMap<String, AttrList>,
     pub is_journal: bool,
 
-    pub string: String,
+    pub contents: BlockContent,
     pub heading: usize,
     pub view_type: ViewType,
 

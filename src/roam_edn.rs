@@ -1,13 +1,12 @@
+use std::{collections::BTreeMap, convert::TryFrom, mem, str::FromStr};
+
 use ahash::{HashMap, HashMapExt};
 use edn_rs::{Edn, EdnError};
 use eyre::Result;
 use smallvec::SmallVec;
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use std::mem;
-use std::str::FromStr;
 
 use crate::{
+    content::BlockContent,
     graph::{Block, BlockInclude, ParsedPage, ViewType},
     parse_string::ContentStyle,
 };
@@ -428,7 +427,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<Parsed
             order: roam_block.order,
             parent: roam_block.parents.first().copied(),
             children: roam_block.children.clone(),
-            string: roam_block.string.clone(),
+            contents: BlockContent::new_parsed(ContentStyle::Roam, roam_block.string.clone())?,
             heading: roam_block.heading,
             view_type,
         };
