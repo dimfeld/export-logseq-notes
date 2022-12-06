@@ -120,41 +120,35 @@ impl MetadataDb {
 
     pub fn get_image(&self, image: &Image) -> Result<Option<PicStoreImageData>> {
         let conn = self.0.read_pool.get()?;
-        let mut stmt = conn.prepare_cached("SELECT hash, data FROM images WHERE filename = ?")?;
+        let mut stmt = conn.prepare_cached(
+            r##"SELECT data FROM images
+            WHERE filename = ? AND hash = ? AND version = 1
+            LIMIT 1"##,
+        )?;
 
         let path = image.path.to_string_lossy();
-        let result: Option<(bool, String)> = stmt
-            .query_row(params![path.as_ref()], |row| {
-                Ok((
-                    row.get(0)
-                        .map(|hash: Vec<u8>| image.hash.as_bytes().as_slice() == hash)?,
-                    row.get(1)?,
-                ))
-            })
+        let result: Option<String> = stmt
+            .query_row(
+                params![path.as_ref(), image.hash.as_bytes().as_slice()],
+                |row| row.get(0),
+            )
             .optional()?;
 
-        let result = match result {
-            None => None,
-            Some((matches, data)) => {
-                if matches {
-                    Some(serde_json::from_str(&data)?)
-                } else {
-                    None
-                }
-            }
-        };
-
-        Ok(result)
+        result
+            .map(|s| serde_json::from_str(&s))
+            .transpose()
+            .map_err(eyre::Error::from)
     }
 
     pub fn add_image(&self, image: &Image, data: &PicStoreImageData) -> Result<()> {
         let conn = self.0.write_conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            r##"INSERT INTO images (filename, hash, data)
-                VALUES (?, ?, ?)
+            r##"INSERT INTO images (filename, version, hash, data)
+                VALUES (?, 1, ?, ?)
                 ON CONFLICT DO UPDATE SET
                     hash=EXCLUDED.hash,
-                    data=EXCLUDED.data"##,
+                    data=EXCLUDED.data,
+                    version=EXCLUDED.version"##,
         )?;
 
         stmt.execute(params![
