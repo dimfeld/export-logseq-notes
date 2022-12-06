@@ -1,6 +1,6 @@
 use eyre::Result;
 use reqwest::header::HeaderMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{config::PicStoreConfig, image::Image};
 
@@ -57,7 +57,7 @@ impl PicStoreClient {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PicStoreImageData {
     pub id: String,
     pub html: String,

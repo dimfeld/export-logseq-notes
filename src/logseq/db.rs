@@ -8,7 +8,7 @@ use eyre::Result;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use rusqlite_migration::{Migrations, M};
 
-use crate::image::Image;
+use crate::{image::Image, pic_store::PicStoreImageData};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MetadataDbPage {
@@ -118,9 +118,9 @@ impl MetadataDb {
         Ok(hash_row.map(|row| (PageMatchType::ByHash, row)))
     }
 
-    pub fn get_image(&self, image: &Image) -> Result<Option<String>> {
+    pub fn get_image(&self, image: &Image) -> Result<Option<PicStoreImageData>> {
         let conn = self.0.read_pool.get()?;
-        let mut stmt = conn.prepare_cached("SELECT hash, html FROM images WHERE filename = ?")?;
+        let mut stmt = conn.prepare_cached("SELECT hash, data FROM images WHERE filename = ?")?;
 
         let path = image.path.to_string_lossy();
         let result: Option<(bool, String)> = stmt
@@ -135,9 +135,9 @@ impl MetadataDb {
 
         let result = match result {
             None => None,
-            Some((matches, html)) => {
+            Some((matches, data)) => {
                 if matches {
-                    Some(html)
+                    Some(serde_json::from_str(&data)?)
                 } else {
                     None
                 }
@@ -147,22 +147,20 @@ impl MetadataDb {
         Ok(result)
     }
 
-    pub fn add_image(&self, image: &Image, image_id: &str, html: &str) -> Result<()> {
+    pub fn add_image(&self, image: &Image, data: &PicStoreImageData) -> Result<()> {
         let conn = self.0.write_conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            r##"INSERT INTO images (filename, hash, image_id, html)
-                VALUES (?, ?, ? ?)
+            r##"INSERT INTO images (filename, hash, data)
+                VALUES (?, ?, ?)
                 ON CONFLICT DO UPDATE SET
                     hash=EXCLUDED.hash,
-                    image_id=EXCLUDED.image_id,
-                    html=EXCLUDED.html"##,
+                    data=EXCLUDED.data"##,
         )?;
 
         stmt.execute(params![
             image.path.to_string_lossy().as_ref(),
             image.hash.as_bytes().as_slice(),
-            image_id,
-            html
+            serde_json::to_string(data)?,
         ])?;
 
         Ok(())
