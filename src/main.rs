@@ -2,6 +2,7 @@ mod config;
 mod content;
 mod graph;
 mod html;
+mod image;
 mod logseq;
 mod make_pages;
 mod page;

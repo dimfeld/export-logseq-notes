@@ -1,11 +1,14 @@
-use eyre::Result;
-use rusqlite::{params, Connection, OptionalExtension, Row};
-use rusqlite_migration::{Migrations, M};
 use std::{
     ops::Deref,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+
+use eyre::Result;
+use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite_migration::{Migrations, M};
+
+use crate::image::Image;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MetadataDbPage {
@@ -61,8 +64,10 @@ impl MetadataDb {
         conn.pragma_update(None, "journal_mode", "wal")?;
         conn.pragma_update(None, "synchronous", "normal")?;
 
-        let migrations =
-            Migrations::new(vec![M::up(include_str!("./migrations/0001-initial.sql"))]);
+        let migrations = Migrations::new(vec![
+            M::up(include_str!("./migrations/0001-initial.sql")),
+            M::up(include_str!("./migrations/0002-images.sql")),
+        ]);
 
         migrations.to_latest(&mut conn)?;
 
@@ -111,6 +116,56 @@ impl MetadataDb {
             .optional()?;
 
         Ok(hash_row.map(|row| (PageMatchType::ByHash, row)))
+    }
+
+    pub fn get_image(&self, image: &Image) -> Result<Option<String>> {
+        let conn = self.0.read_pool.get()?;
+        let mut stmt = conn.prepare_cached("SELECT hash, html FROM images WHERE filename = ?")?;
+
+        let path = image.path.to_string_lossy();
+        let result: Option<(bool, String)> = stmt
+            .query_row(params![path.as_ref()], |row| {
+                Ok((
+                    row.get(0)
+                        .map(|hash: Vec<u8>| image.hash.as_bytes().as_slice() == hash)?,
+                    row.get(1)?,
+                ))
+            })
+            .optional()?;
+
+        let result = match result {
+            None => None,
+            Some((matches, html)) => {
+                if matches {
+                    Some(html)
+                } else {
+                    None
+                }
+            }
+        };
+
+        Ok(result)
+    }
+
+    pub fn add_image(&self, image: &Image, image_id: &str, html: &str) -> Result<()> {
+        let conn = self.0.write_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r##"INSERT INTO images (filename, hash, image_id, html)
+                VALUES (?, ?, ? ?)
+                ON CONFLICT DO UPDATE SET
+                    hash=EXCLUDED.hash,
+                    image_id=EXCLUDED.image_id,
+                    html=EXCLUDED.html"##,
+        )?;
+
+        stmt.execute(params![
+            image.path.to_string_lossy().as_ref(),
+            image.hash.as_bytes().as_slice(),
+            image_id,
+            html
+        ])?;
+
+        Ok(())
     }
 }
 

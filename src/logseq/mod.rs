@@ -1,6 +1,6 @@
 mod attrs;
 mod blocks;
-mod db;
+pub mod db;
 mod page_header;
 #[cfg(test)]
 mod tests;

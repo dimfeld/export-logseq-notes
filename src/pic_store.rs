@@ -1,19 +1,17 @@
-use std::path::Path;
-
 use eyre::Result;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 
-use crate::config::PicStoreConfig;
+use crate::{config::PicStoreConfig, image::Image};
 
 pub struct PicStoreClient {
-    client: reqwest::Client,
+    client: reqwest::blocking::Client,
     config: PicStoreConfig,
 }
 
 impl PicStoreClient {
     pub fn new(config: &PicStoreConfig) -> eyre::Result<Self> {
-        let client = reqwest::Client::builder()
+        let client = reqwest::blocking::Client::builder()
             .user_agent("export-logseq-notes")
             .default_headers(HeaderMap::from_iter([(
                 reqwest::header::AUTHORIZATION,
@@ -27,22 +25,18 @@ impl PicStoreClient {
         })
     }
 
-    async fn lookup_by_hash(&self, image_data: &[u8]) -> Result<Option<PicStoreImageData>> {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(image_data);
-        let hash = hasher.finalize();
-
+    fn lookup_by_hash(&self, hash: &blake3::Hash) -> Result<Option<PicStoreImageData>> {
         let url = format!("{}/api/image_by_hash/{}", self.config.url, hash);
-        let lookup_response = self.client.get(&url).send().await?;
+        let lookup_response = self.client.get(&url).send()?;
 
         match lookup_response.status() {
             reqwest::StatusCode::OK => {
-                let image_data: PicStoreImageData = lookup_response.json().await?;
+                let image_data: PicStoreImageData = lookup_response.json()?;
                 Ok(Some(image_data))
             }
             reqwest::StatusCode::NOT_FOUND => Ok(None),
             status => {
-                let data: serde_json::Value = lookup_response.json().await?;
+                let data: serde_json::Value = lookup_response.json()?;
                 Err(eyre::eyre!(
                     "Unexpected response {} from Pic Store: {:?}",
                     status,
@@ -52,9 +46,8 @@ impl PicStoreClient {
         }
     }
 
-    pub async fn get_or_upload_image(&self, image_path: &Path) -> Result<PicStoreImageData> {
-        let image_data = std::fs::read(image_path)?;
-        let existing = self.lookup_by_hash(&image_data).await?;
+    pub fn get_or_upload_image(&self, image: &Image) -> Result<PicStoreImageData> {
+        let existing = self.lookup_by_hash(&image.hash)?;
 
         if let Some(existing) = existing {
             return Ok(existing);
@@ -66,5 +59,6 @@ impl PicStoreClient {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PicStoreImageData {
-    // todo
+    pub id: String,
+    pub html: String,
 }
