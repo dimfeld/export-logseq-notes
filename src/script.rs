@@ -75,6 +75,7 @@ pub struct PageConfig {
     pub tags: AttrList,
     pub is_journal: bool,
     pub template: TemplateSelection,
+    pub picture_template: TemplateSelection,
 
     pub include: bool,
     pub allow_embedding: AllowEmbed,
@@ -384,6 +385,16 @@ pub mod rhai_page {
     pub fn set_template_contents(page: &mut Page, contents: String) {
         page.template = TemplateSelection::Value(contents);
     }
+
+    #[rhai_fn(global)]
+    pub fn set_picture_template_file(page: &mut Page, filename: String) {
+        page.picture_template = TemplateSelection::File(filename);
+    }
+
+    #[rhai_fn(global)]
+    pub fn set_picture_template_contents(page: &mut Page, contents: String) {
+        page.picture_template = TemplateSelection::Value(contents);
+    }
 }
 
 pub fn each_block(
@@ -571,6 +582,7 @@ pub fn run_script_on_page(
         url_name: slug,
         title,
         template: TemplateSelection::Default,
+        picture_template: TemplateSelection::Default,
         is_journal: page_block.is_journal,
         attrs: page_block.attrs.clone(),
         tags: page_block.tags.clone(),

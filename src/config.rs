@@ -161,6 +161,8 @@ pub struct PicStoreConfig {
     pub location_prefix: Option<String>,
     /// The upload profile to use, if not the default one.
     pub upload_profile: Option<String>,
+    /// The template to generate <picture> tags. This can also be overridden from the page script.
+    pub template: Option<PathBuf>,
 }
 
 fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<T> {
