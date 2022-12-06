@@ -46,19 +46,79 @@ impl PicStoreClient {
         }
     }
 
-    pub fn get_or_upload_image(&self, image: &Image) -> Result<PicStoreImageData> {
+    /// Get the image data if it exists. If it does not exist, upload it and return the ID,
+    /// which can be checked again.
+    pub fn get_or_upload_image(&self, image: &Image) -> Result<GetImageResult> {
         let existing = self.lookup_by_hash(&image.hash)?;
 
         if let Some(existing) = existing {
-            return Ok(existing);
+            return Ok(GetImageResult::Exists(existing));
         }
 
-        todo!("upload the image");
+        let filename = image.path.file_name().unwrap().to_string_lossy();
+        let new_image_spec = NewBaseImageRequest {
+            filename: filename.to_string(),
+            location: self
+                .config
+                .location_prefix
+                .map(|prefix| format!("{}/{}", prefix, filename)),
+            upload_profile_id: self.config.upload_profile,
+        };
+
+        let new_image: NewBaseImageResult = self
+            .client
+            .post(&format!("{}/api/images", self.config.url))
+            .json(&new_image_spec)
+            .send()?
+            .error_for_status()?
+            .json()?;
+
+        let upload_url = format!("{}/api/images/{}/upload", self.config.url, new_image.id);
+        self.client
+            .post(&upload_url)
+            .body(image.data.clone())
+            .send()?
+            .error_for_status()?;
+
+        Ok(GetImageResult::Uploaded(new_image.id))
     }
+
+    pub fn get_image_status(&self, image_id: &str) -> Result<Option<PicStoreImageData>> {
+        todo!()
+    }
+}
+
+pub enum GetImageResult {
+    Uploaded(String),
+    Exists(PicStoreImageData),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct NewBaseImageResult {
+    id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NewBaseImageRequest {
+    filename: String,
+    location: Option<String>,
+    upload_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PicStoreImageData {
     pub id: String,
     pub html: String,
+    pub status: String,
+    pub output: Vec<PicStoreImageOutput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PicStoreImageOutput {
+    id: String,
+    url: String,
+    status: String,
+    width: u32,
+    height: u32,
+    format: String,
 }

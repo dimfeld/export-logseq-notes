@@ -56,6 +56,8 @@ pub struct MetadataDbInner {
     read_pool: r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
 }
 
+const IMAGE_DATA_VERSION: usize = 1;
+
 impl MetadataDb {
     pub fn new(dir: PathBuf) -> Result<MetadataDb> {
         let db_path = dir.join("export-logseq-notes.sqlite3");
@@ -122,14 +124,18 @@ impl MetadataDb {
         let conn = self.0.read_pool.get()?;
         let mut stmt = conn.prepare_cached(
             r##"SELECT data FROM images
-            WHERE filename = ? AND hash = ? AND version = 1
+            WHERE filename = ? AND hash = ? AND version = ?
             LIMIT 1"##,
         )?;
 
         let path = image.path.to_string_lossy();
         let result: Option<String> = stmt
             .query_row(
-                params![path.as_ref(), image.hash.as_bytes().as_slice()],
+                params![
+                    path.as_ref(),
+                    image.hash.as_bytes().as_slice(),
+                    IMAGE_DATA_VERSION
+                ],
                 |row| row.get(0),
             )
             .optional()?;
@@ -144,7 +150,7 @@ impl MetadataDb {
         let conn = self.0.write_conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
             r##"INSERT INTO images (filename, version, hash, data)
-                VALUES (?, 1, ?, ?)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT DO UPDATE SET
                     hash=EXCLUDED.hash,
                     data=EXCLUDED.data,
@@ -153,6 +159,7 @@ impl MetadataDb {
 
         stmt.execute(params![
             image.path.to_string_lossy().as_ref(),
+            IMAGE_DATA_VERSION,
             image.hash.as_bytes().as_slice(),
             serde_json::to_string(data)?,
         ])?;
