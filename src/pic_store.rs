@@ -15,7 +15,8 @@ impl PicStoreClient {
             .user_agent("export-logseq-notes")
             .default_headers(HeaderMap::from_iter([(
                 reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", config.api_key).try_into()?,
+                // unwrap is safe because the config parsing stage ensures that the key is set.
+                format!("Bearer {}", config.api_key.as_ref().unwrap()).try_into()?,
             )]))
             .build()?;
 
@@ -61,8 +62,9 @@ impl PicStoreClient {
             location: self
                 .config
                 .location_prefix
+                .as_ref()
                 .map(|prefix| format!("{}/{}", prefix, filename)),
-            upload_profile_id: self.config.upload_profile,
+            upload_profile_id: self.config.upload_profile.clone(),
         };
 
         let new_image: NewBaseImageResult = self
@@ -83,8 +85,17 @@ impl PicStoreClient {
         Ok(GetImageResult::Uploaded(new_image.id))
     }
 
+    /// Get the status of an image, returning it only if the image is ready to read.
     pub fn get_image_status(&self, image_id: &str) -> Result<Option<PicStoreImageData>> {
-        todo!()
+        let url = format!("{}/api/images/{}", self.config.url, image_id);
+        let response: PicStoreImageData =
+            self.client.get(&url).send()?.error_for_status()?.json()?;
+
+        if response.status == "ready" {
+            Ok(Some(response))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -94,8 +105,8 @@ pub enum GetImageResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct NewBaseImageResult {
-    id: String,
+pub struct NewBaseImageResult {
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

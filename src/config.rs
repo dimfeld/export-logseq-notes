@@ -154,14 +154,15 @@ pub struct Config {
 pub struct PicStoreConfig {
     /// The URL of the Pic Store instance to use.
     pub url: String,
-    /// The API key to use for requests to Pic Store.
-    pub api_key: String,
+    /// The API key to use for requests to Pic Store. This can also come from the PIC_STORE_KEY
+    /// environment variable.
+    pub api_key: Option<String>,
     /// The location prefix to use for Pic Store images. This will stack on top of any prefixes
     /// configured in the project or upload profile.
     pub location_prefix: Option<String>,
     /// The upload profile to use, if not the default one.
     pub upload_profile: Option<String>,
-    /// The template to generate <picture> tags. This can also be overridden from the page script.
+    /// A path to a template to generate <picture> tags. This can also be overridden from the page script.
     pub template: Option<PathBuf>,
 }
 
@@ -184,7 +185,22 @@ impl Config {
         )
         .context("Failed to open config file")?;
 
-        let file_cfg: FileConfig = toml::from_str(&config_file)?;
+        let mut file_cfg: FileConfig = toml::from_str(&config_file)?;
+
+        if let Some(pc) = file_cfg.pic_store.as_mut() {
+            if pc.api_key.is_none() {
+                let key = match std::env::var("PIC_STORE_KEY") {
+                    Ok(k) => k,
+                    Err(_) => {
+                        return Err(eyre!(
+                            "The PIC_STORE_KEY environment variable or the pic_store.api_key config key must be set to use Pic Store"
+                        ))
+                    }
+                };
+
+                pc.api_key = Some(key);
+            }
+        }
 
         let mut cfg = Config {
             path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
