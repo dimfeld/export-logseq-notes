@@ -39,7 +39,7 @@ impl Images {
     }
 
     /// Read an image and upload it to the CDN if necessary.
-    pub fn add(&self, path: PathBuf) -> Result<()> {
+    pub fn add(&self, path: PathBuf, upload_profile: Option<&str>) -> Result<()> {
         let image_data = std::fs::read(self.base_path.join(&path))?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(&image_data);
@@ -62,7 +62,7 @@ impl Images {
             );
         } else {
             // This is a new image, so add it to the CDN if necessary.
-            let result = self.pic_store.get_or_upload_image(&image)?;
+            let result = self.pic_store.get_or_upload_image(&image, upload_profile)?;
             match result {
                 GetImageResult::Exists(result) => self.db.add_image(&image, &result)?,
                 GetImageResult::Uploaded(id) => {

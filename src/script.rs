@@ -75,6 +75,7 @@ pub struct PageConfig {
     pub tags: AttrList,
     pub is_journal: bool,
     pub template: TemplateSelection,
+    pub picture_upload_profile: Option<String>,
     pub picture_template: TemplateSelection,
 
     pub include: bool,
@@ -395,6 +396,11 @@ pub mod rhai_page {
     pub fn set_picture_template_contents(page: &mut Page, contents: String) {
         page.picture_template = TemplateSelection::Value(contents);
     }
+
+    #[rhai_fn(global)]
+    pub fn set_picture_upload_profile(page: &mut Page, profile: String) {
+        page.picture_upload_profile = Some(profile);
+    }
 }
 
 pub fn each_block(
@@ -583,6 +589,7 @@ pub fn run_script_on_page(
         title,
         template: TemplateSelection::Default,
         picture_template: TemplateSelection::Default,
+        picture_upload_profile: None,
         is_journal: page_block.is_journal,
         attrs: page_block.attrs.clone(),
         tags: page_block.tags.clone(),

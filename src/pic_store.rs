@@ -49,7 +49,11 @@ impl PicStoreClient {
 
     /// Get the image data if it exists. If it does not exist, upload it and return the ID,
     /// which can be checked again.
-    pub fn get_or_upload_image(&self, image: &Image) -> Result<GetImageResult> {
+    pub fn get_or_upload_image(
+        &self,
+        image: &Image,
+        upload_profile: Option<&str>,
+    ) -> Result<GetImageResult> {
         let existing = self.lookup_by_hash(&image.hash)?;
 
         if let Some(existing) = existing {
@@ -64,7 +68,9 @@ impl PicStoreClient {
                 .location_prefix
                 .as_ref()
                 .map(|prefix| format!("{}/{}", prefix, filename)),
-            upload_profile_id: self.config.upload_profile.clone(),
+            upload_profile_id: upload_profile
+                .map(|p| p.to_string())
+                .or_else(|| self.config.upload_profile.clone()),
         };
 
         let new_image: NewBaseImageResult = self
