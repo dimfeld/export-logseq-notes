@@ -75,8 +75,8 @@ pub struct PageConfig {
     pub tags: AttrList,
     pub is_journal: bool,
     pub template: TemplateSelection,
-    pub picture_upload_profile: Option<String>,
     pub picture_template: TemplateSelection,
+    pub picture_upload_profile: Option<String>,
 
     pub include: bool,
     pub allow_embedding: AllowEmbed,
@@ -129,8 +129,7 @@ impl BlockConfig {
 
     fn apply_to_block(self, block: &mut Block) -> Result<()> {
         if self.edited {
-            block.contents =
-                BlockContent::new_parsed(block.contents.borrow_style().clone(), self.string)?;
+            block.contents = BlockContent::new_parsed(*block.contents.borrow_style(), self.string)?;
             block.heading = self.heading;
             block.view_type = self.view_type;
             block.include_type = self.include_type;

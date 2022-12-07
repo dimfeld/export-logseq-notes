@@ -59,6 +59,20 @@ pub enum Expression<'a> {
     HRule,
 }
 
+impl<'a> Expression<'a> {
+    pub fn contained_expressions(&self) -> &[Expression<'a>] {
+        match self {
+            Expression::Bold(exprs) => exprs,
+            Expression::Italic(exprs) => exprs,
+            Expression::Strike(exprs) => exprs,
+            Expression::Highlight(exprs) => exprs,
+            Expression::BlockQuote(exprs) => exprs,
+            Expression::Attribute { value, .. } => value,
+            _ => &[],
+        }
+    }
+}
+
 fn nonws_char(c: char) -> bool {
     !c.is_whitespace() && !is_newline(c as u8)
 }

@@ -8,6 +8,7 @@ use crate::{
     config::Config,
     graph::{Block, BlockInclude, Graph, ViewType},
     html,
+    image::ImageInfo,
     parse_string::{parse, Expression},
     string_builder::StringBuilder,
     syntax_highlight,
@@ -37,7 +38,7 @@ pub struct ManifestItem {
     pub uid: String,
 }
 
-pub struct Page<'a, 'b> {
+pub struct Page<'a> {
     pub id: usize,
     pub title: String,
     pub slug: &'a str,
@@ -49,7 +50,11 @@ pub struct Page<'a, 'b> {
     pub pages_by_title: &'a HashMap<String, IdSlugUid>,
     pub pages_by_id: &'a HashMap<usize, TitleSlugUid>,
     pub omitted_attributes: &'a HashSet<&'a str>,
-    pub highlighter: &'b syntax_highlight::Highlighter,
+    pub highlighter: &'a syntax_highlight::Highlighter,
+    pub handlebars: &'a handlebars::Handlebars<'a>,
+
+    pub picture_template_key: &'a str,
+    pub image_info: &'a HashMap<String, ImageInfo>,
 }
 
 fn write_depth(depth: usize) -> String {
@@ -64,7 +69,7 @@ fn render_opening_tag(tag: &str, class: &str) -> String {
     }
 }
 
-impl<'a, 'b> Page<'a, 'b> {
+impl<'a> Page<'a> {
     fn link_if_allowed_with_label(
         &self,
         page: &'a str,
@@ -153,6 +158,37 @@ impl<'a, 'b> Page<'a, 'b> {
             ])
         } else {
             anchor
+        }
+    }
+
+    fn render_image(&self, url: &str, alt: &str) -> Result<StringBuilder> {
+        let image_info = self.image_info.get(url);
+
+        match image_info {
+            Some(info) => {
+                let mut data = handlebars::to_json(&info.data);
+
+                // Find a format that would be supported by browsers that don't support the
+                // <picture> tag.
+                let fallback = info
+                    .data
+                    .output
+                    .iter()
+                    .find(|o| o.format == "jpg" || o.format == "png")
+                    .unwrap_or(&info.data.output[0]);
+
+                data["fallback"] = handlebars::to_json(fallback);
+                data["alt"] = handlebars::to_json(alt);
+
+                let rendered = self.handlebars.render(self.picture_template_key, &data)?;
+                Ok(rendered.into())
+            }
+            None => Ok(format!(
+                r##"<img alt="{alt}" src="{url}" />"##,
+                alt = html::escape(alt),
+                url = html::escape(url)
+            )
+            .into()),
         }
     }
 
@@ -350,16 +386,7 @@ impl<'a, 'b> Page<'a, 'b> {
             Expression::Hashtag(s, dot) => {
                 (self.hashtag(s, *dot, omit_unexported_links), true, true)
             }
-            Expression::Image { alt, url } => (
-                format!(
-                    r##"<img title="{alt}" src="{url}" />"##,
-                    alt = html::escape(alt),
-                    url = html::escape(url)
-                )
-                .into(),
-                true,
-                true,
-            ),
+            Expression::Image { alt, url } => (self.render_image(url, alt)?, true, true),
             Expression::Todo { done } => {
                 let done = if *done { "checked" } else { "" };
 

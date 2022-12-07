@@ -94,10 +94,11 @@ impl PicStoreClient {
     /// Get the status of an image, returning it only if the image is ready to read.
     pub fn get_image_status(&self, image_id: &str) -> Result<Option<PicStoreImageData>> {
         let url = format!("{}/api/images/{}", self.config.url, image_id);
-        let response: PicStoreImageData =
+        let mut response: PicStoreImageData =
             self.client.get(&url).send()?.error_for_status()?.json()?;
 
         if response.status == "ready" {
+            response.output.sort_unstable_by_key(|o| o.file_size);
             Ok(Some(response))
         } else {
             Ok(None)
@@ -125,17 +126,22 @@ struct NewBaseImageRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PicStoreImageData {
     pub id: String,
-    pub html: String,
     pub status: String,
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+    pub alt_text: String,
+    pub file_size: u32,
     pub output: Vec<PicStoreImageOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PicStoreImageOutput {
-    id: String,
-    url: String,
-    status: String,
-    width: u32,
-    height: u32,
-    format: String,
+    pub id: String,
+    pub url: String,
+    pub status: String,
+    pub file_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub format: String,
 }

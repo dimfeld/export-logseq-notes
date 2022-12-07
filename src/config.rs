@@ -163,6 +163,7 @@ pub struct PicStoreConfig {
     /// The upload profile to use, if not the default one.
     pub upload_profile: Option<String>,
     /// A path to a template to generate <picture> tags. This can also be overridden from the page script.
+    /// If not provided, a default template is used that generates a simple <picture> tag.
     pub template: Option<PathBuf>,
 }
 

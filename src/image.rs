@@ -95,3 +95,14 @@ impl Images {
         Ok(images)
     }
 }
+
+pub const DEFAULT_PICTURE_TEMPLATE: &str = r##"
+<picture>
+    {{#each output}}
+        <source srcset="{{this.url}}" type="image/{{this.format}}" width="{{this.width}}" height="{{this.height}}" />
+    {{/each}}
+    {{#with fallback as | f |}}
+        <img src="{{f.src}}" alt="{{alt}}" width="{{f.width}}" height="{{f.height}}" />
+    {{/with}}
+</picture>
+"##;

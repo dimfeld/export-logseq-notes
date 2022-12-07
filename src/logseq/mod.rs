@@ -73,15 +73,13 @@ impl LogseqGraph {
     // to keep the LogseqGraph around and this API isn't exposed to the outside world.
     pub fn build(
         path: PathBuf,
-        use_metadata_db: bool,
+        metadata_db: Option<MetadataDb>,
     ) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
             root: path.clone(),
             legacy_page_metadata: HashMap::default(),
         };
-
-        let metadata_db = use_metadata_db.then(|| MetadataDb::new(path)).transpose()?;
 
         lsgraph.read_legacy_page_metadata()?;
         let mut pages = lsgraph.read_page_directory("pages", &metadata_db, false)?;
