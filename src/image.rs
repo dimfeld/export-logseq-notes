@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Mutex};
 
 use ahash::HashMap;
-use eyre::Result;
+use eyre::{Result, WrapErr};
 
 use crate::{
     logseq::db::MetadataDb,
@@ -40,7 +40,9 @@ impl Images {
 
     /// Read an image and upload it to the CDN if necessary.
     pub fn add(&self, path: PathBuf, upload_profile: Option<&str>) -> Result<()> {
-        let image_data = std::fs::read(self.base_path.join(&path))?;
+        let full_path = self.base_path.join(&path);
+        let image_data =
+            std::fs::read(&full_path).wrap_err_with(|| format!("{}", full_path.display()))?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(&image_data);
         let hash = hasher.finalize();

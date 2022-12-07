@@ -28,6 +28,14 @@ struct CmdlineConfig {
         help = "Output directory. This can also be set in the config file."
     )]
     pub output: Option<PathBuf>,
+
+    #[structopt(
+        short,
+        long,
+        env,
+        help = "The PKM product that produced the file. Defaults to Logseq"
+    )]
+    pub product: Option<PkmProduct>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,8 +53,8 @@ struct FileConfig {
     /// The script to run
     pub script: PathBuf,
 
-    /// Data format to read
-    pub product: PkmProduct,
+    /// Data format to read. Defaults to Logseq
+    pub product: Option<PkmProduct>,
 
     /// Base URL to apply to relative hyperlinks
     pub base_url: Option<String>,
@@ -173,6 +181,10 @@ fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<
         .ok_or_else(|| eyre!("The {} option is required", name))
 }
 
+fn merge_default<T: Default>(first: Option<T>, second: Option<T>) -> T {
+    first.or(second).unwrap_or_default()
+}
+
 impl Config {
     pub fn load() -> Result<Config> {
         dotenv::dotenv().ok();
@@ -208,7 +220,7 @@ impl Config {
             track_logseq_timestamps: file_cfg.track_logseq_timestamps.unwrap_or(true),
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             script: file_cfg.script,
-            product: file_cfg.product,
+            product: merge_default(cmdline_cfg.product, file_cfg.product),
             base_url: file_cfg.base_url,
             omit_attributes: file_cfg.omit_attributes.unwrap_or_default(),
             highlight_class_prefix: file_cfg.highlight_class_prefix,

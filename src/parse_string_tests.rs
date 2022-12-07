@@ -244,6 +244,23 @@ fn markdown_link() {
 }
 
 #[test]
+fn markdown_link_with_embedded_parens() {
+    let input =
+        r##"For actually communicating, [spiped](https://www.tarsnap.com/sp(i)ped.html) is nice"##;
+    test_parse_all_styles(
+        input,
+        vec![
+            Expression::Text("For actually communicating, "),
+            Expression::MarkdownExternalLink {
+                title: "spiped",
+                url: "https://www.tarsnap.com/sp(i)ped.html",
+            },
+            Expression::Text(" is nice"),
+        ],
+    )
+}
+
+#[test]
 fn attribute_simple() {
     let input = "Source:: some blog";
     test_parse_all_styles(

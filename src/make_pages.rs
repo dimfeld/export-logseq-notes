@@ -54,35 +54,48 @@ struct ExtractedImage {
     url: String,
 }
 
-fn find_image_expressions(images: &mut Vec<ExtractedImage>, expressions: &[Expression]) {
+struct ExpressionContents {
+    image_paths: Vec<ExtractedImage>,
+    page_embeds: Vec<String>,
+}
+
+fn examine_expressions(contents: &mut ExpressionContents, expressions: &[Expression]) {
     for expr in expressions {
-        if let &Expression::Image { url, .. } = expr {
-            if !url.starts_with("http") {
-                images.push(ExtractedImage { url: url.into() });
+        match expr {
+            Expression::Image { url, .. } => {
+                if !url.starts_with("http") {
+                    contents.image_paths.push(ExtractedImage {
+                        url: url.to_string(),
+                    });
+                }
             }
+            Expression::PageEmbed(uid) => {
+                contents.page_embeds.push(uid.to_string());
+            }
+            _ => {}
         }
 
         let contained = expr.contained_expressions();
         if !contained.is_empty() {
-            find_image_expressions(images, contained);
+            examine_expressions(contents, contained);
         }
     }
 }
 
-fn find_local_images(images: &mut Vec<ExtractedImage>, page: &ParsedPage, block_index: usize) {
+fn examine_tags(contents: &mut ExpressionContents, page: &ParsedPage, block_index: usize) {
     let block = page.blocks.get(&block_index).unwrap();
 
-    find_image_expressions(images, block.contents.borrow_parsed());
+    examine_expressions(contents, block.contents.borrow_parsed());
 
     for child in &block.children {
-        find_local_images(images, page, *child);
+        examine_tags(contents, page, *child);
     }
 }
 
 struct ProcessedPage {
     config: PageConfig,
     blocks: ParsedPage,
-    image_paths: Vec<ExtractedImage>,
+    notable: ExpressionContents,
     slug: String,
 }
 
@@ -115,13 +128,16 @@ pub fn make_pages_from_script(
                 page_config.url_name.as_str(),
             );
 
-            let mut image_paths = Vec::new();
-            find_local_images(&mut image_paths, &page_blocks, page_blocks.root_block);
+            let mut notable = ExpressionContents {
+                image_paths: Vec::new(),
+                page_embeds: Vec::new(),
+            };
+            examine_tags(&mut notable, &page_blocks, page_blocks.root_block);
 
             Ok::<_, eyre::Report>(ProcessedPage {
                 config: page_config,
                 blocks: page_blocks,
-                image_paths,
+                notable,
                 slug,
             })
         })
@@ -133,6 +149,11 @@ pub fn make_pages_from_script(
         })
         .collect::<Result<Vec<_>>>()?;
 
+    let embedded_pages = pages
+        .iter()
+        .flat_map(|page| page.notable.page_embeds.iter().map(|s| s.to_string()))
+        .collect::<HashSet<_>>();
+
     // Sync the images with the CDN
     let image_info = if let Some(pc_config) = global_config.pic_store.as_ref() {
         let pc_client = PicStoreClient::new(pc_config)?;
@@ -140,16 +161,41 @@ pub fn make_pages_from_script(
 
         let image_paths = pages
             .iter_mut()
-            .flat_map(|p| {
-                p.image_paths
-                    .drain(..)
-                    .map(|path| (p.config.picture_upload_profile.as_deref(), path))
+            .filter(|ProcessedPage { config, blocks, .. }| {
+                // The list of pages above includes not only explicitly included pages, but all
+                // those that might be eligible for embedding. Here we want to filter that down to
+                // just those that will actually be used in the output somewhere.
+                if config.include {
+                    return true;
+                }
+
+                let orig_title = blocks
+                    .blocks
+                    .get(&blocks.root_block)
+                    .unwrap()
+                    .page_title
+                    .as_deref()
+                    .unwrap_or("");
+
+                embedded_pages.contains(orig_title)
             })
+            .flat_map(
+                |ProcessedPage {
+                     config, notable, ..
+                 }| {
+                    notable
+                        .image_paths
+                        .drain(..)
+                        .map(|path| (config.picture_upload_profile.as_deref(), path))
+                },
+            )
             .collect::<Vec<_>>();
 
         image_paths
             .into_par_iter()
             .try_for_each(|(profile_override, path)| {
+                // TODO this needs to be evaluated from the page's actual directory, not just against
+                // the base path.
                 images.add(PathBuf::from(path.url), profile_override)
             })?;
 

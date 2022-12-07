@@ -117,10 +117,10 @@ Tags:: Project
         (String::from("tags"), smallvec![String::from("Project")]),
     ]);
 
-    assert_eq!(parsed.attrs, expected_attrs, "page attributes");
+    assert_eq!(parsed.0, expected_attrs, "page attributes");
 
     for (i, items) in parsed
-        .blocks
+        .1
         .iter()
         .zip_longest(expected_blocks.iter())
         .enumerate()
