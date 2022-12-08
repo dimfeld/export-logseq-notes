@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, io::Write, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
@@ -8,7 +12,7 @@ use rhai::{packages::Package, Engine};
 use serde::Serialize;
 
 use crate::{
-    config::Config,
+    config::{Config, PkmProduct},
     graph::{Graph, ParsedPage},
     image::{image_full_path, Images},
     logseq::db::MetadataDb,
@@ -61,13 +65,14 @@ struct ExpressionContents {
 
 fn examine_expressions(
     contents: &mut ExpressionContents,
+    base_path: &Path,
     page: &ParsedPage,
     expressions: &[Expression],
 ) {
     for expr in expressions {
         match expr {
             Expression::Image { url, .. } => {
-                if let Some(path) = image_full_path(&page.path, url) {
+                if let Some(path) = image_full_path(base_path, &page.path, url) {
                     contents.image_paths.push(ExtractedImage { path });
                 }
             }
@@ -79,18 +84,23 @@ fn examine_expressions(
 
         let contained = expr.contained_expressions();
         if !contained.is_empty() {
-            examine_expressions(contents, page, contained);
+            examine_expressions(contents, base_path, page, contained);
         }
     }
 }
 
-fn examine_tags(contents: &mut ExpressionContents, page: &ParsedPage, block_index: usize) {
+fn examine_tags(
+    contents: &mut ExpressionContents,
+    base_path: &Path,
+    page: &ParsedPage,
+    block_index: usize,
+) {
     let block = page.blocks.get(&block_index).unwrap();
 
-    examine_expressions(contents, page, block.contents.borrow_parsed());
+    examine_expressions(contents, base_path, page, block.contents.borrow_parsed());
 
     for child in &block.children {
-        examine_tags(contents, page, *child);
+        examine_tags(contents, base_path, page, *child);
     }
 }
 
@@ -118,6 +128,11 @@ pub fn make_pages_from_script(
         .compile_file(global_config.script.clone())
         .wrap_err("Parsing script")?;
 
+    let base_dir = match global_config.product {
+        PkmProduct::Logseq => global_config.path.canonicalize().unwrap(),
+        PkmProduct::Roam => global_config.path.parent().unwrap().canonicalize().unwrap(),
+    };
+
     let mut pages = pages
         .into_iter()
         .map(|parsed_page| {
@@ -134,7 +149,12 @@ pub fn make_pages_from_script(
                 image_paths: Vec::new(),
                 page_embeds: Vec::new(),
             };
-            examine_tags(&mut notable, &page_blocks, page_blocks.root_block);
+            examine_tags(
+                &mut notable,
+                &base_dir,
+                &page_blocks,
+                page_blocks.root_block,
+            );
 
             Ok::<_, eyre::Report>(ProcessedPage {
                 config: page_config,
@@ -159,7 +179,7 @@ pub fn make_pages_from_script(
     // Sync the images with the CDN
     let image_info = if let Some(pc_config) = global_config.pic_store.as_ref() {
         let pc_client = PicStoreClient::new(pc_config)?;
-        let images = Images::new(global_config.path.clone(), pc_client, metadata_db.unwrap());
+        let images = Images::new(base_dir.to_path_buf(), pc_client, metadata_db.unwrap());
 
         let image_paths = pages
             .iter_mut()
@@ -336,6 +356,7 @@ pub fn make_pages_from_script(
                     id: config.root_block,
                     title: config.title,
                     slug: slug.as_str(),
+                    base_dir: &base_dir,
                     path: blocks.path,
                     latest_found_edit_time: std::cell::Cell::new(0),
                     graph: &graph,

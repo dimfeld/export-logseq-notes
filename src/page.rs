@@ -1,4 +1,7 @@
-use std::{cell::Cell, path::PathBuf};
+use std::{
+    cell::Cell,
+    path::{Path, PathBuf},
+};
 
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
@@ -46,6 +49,7 @@ pub struct Page<'a> {
     pub latest_found_edit_time: Cell<u64>,
 
     pub graph: &'a Graph,
+    pub base_dir: &'a Path,
     pub path: PathBuf,
     pub config: &'a Config,
     pub pages_by_title: &'a HashMap<String, IdSlugUid>,
@@ -163,7 +167,7 @@ impl<'a> Page<'a> {
     }
 
     fn render_image(&self, url: &str, alt: &str) -> Result<StringBuilder> {
-        let image_info = image_full_path(&self.path, url)
+        let image_info = image_full_path(self.base_dir, &self.path, url)
             .and_then(|path| self.image_info.get(path.to_string_lossy().as_ref()));
 
         match image_info {

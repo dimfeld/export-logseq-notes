@@ -50,8 +50,12 @@ impl Images {
         hasher.update(&image_data);
         let hash = hasher.finalize();
 
+        let rel_path = full_path
+            .strip_prefix(&self.base_path)
+            .unwrap_or(&full_path);
+
         let image = Image {
-            path,
+            path: PathBuf::from(rel_path),
             hash,
             data: image_data,
         };
@@ -94,6 +98,8 @@ impl Images {
                     images.insert(path, ImageInfo { image, data: info });
                     break;
                 }
+
+                std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
 
@@ -101,17 +107,22 @@ impl Images {
     }
 }
 
-pub fn image_full_path(origin_path: &Path, image_path: &str) -> Option<PathBuf> {
+pub fn image_full_path(base_path: &Path, origin_path: &Path, image_path: &str) -> Option<PathBuf> {
     if image_path.starts_with("http") {
         return None;
     }
 
-    Some(
-        origin_path
-            .parent()
-            .map(|p| p.join(image_path))
-            .unwrap_or_else(|| PathBuf::from(image_path)),
-    )
+    origin_path
+        .parent()
+        .map(|p| p.join(image_path))
+        .unwrap_or_else(|| PathBuf::from(image_path))
+        .canonicalize()
+        .ok()
+        .map(|p| {
+            p.strip_prefix(base_path)
+                .map(|p| p.to_path_buf())
+                .unwrap_or(p)
+        })
 }
 
 pub const DEFAULT_PICTURE_TEMPLATE: &str = r##"
