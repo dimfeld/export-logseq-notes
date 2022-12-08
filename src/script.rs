@@ -1,7 +1,4 @@
-use crate::{
-    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
-    make_pages::title_to_slug,
-};
+use std::sync::{Arc, Mutex};
 
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result};
@@ -13,7 +10,12 @@ use rhai::{
     Scope, AST,
 };
 use smallvec::smallvec;
-use std::sync::{Arc, Mutex};
+
+use crate::{
+    content::BlockContent,
+    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
+    make_pages::title_to_slug,
+};
 
 type SmartString = smartstring::SmartString<smartstring::LazyCompact>;
 
@@ -73,6 +75,8 @@ pub struct PageConfig {
     pub tags: AttrList,
     pub is_journal: bool,
     pub template: TemplateSelection,
+    pub picture_template: TemplateSelection,
+    pub picture_upload_profile: Option<String>,
 
     pub include: bool,
     pub allow_embedding: AllowEmbed,
@@ -114,7 +118,7 @@ impl BlockConfig {
     fn from_block(block: &Block) -> Self {
         BlockConfig {
             id: block.id,
-            string: block.string.clone(),
+            string: block.contents.borrow_string().clone(),
             heading: block.heading,
             view_type: block.view_type,
             include_type: block.include_type,
@@ -123,14 +127,16 @@ impl BlockConfig {
         }
     }
 
-    fn apply_to_block(self, block: &mut Block) {
+    fn apply_to_block(self, block: &mut Block) -> Result<()> {
         if self.edited {
-            block.string = self.string;
+            block.contents = BlockContent::new_parsed(*block.contents.borrow_style(), self.string)?;
             block.heading = self.heading;
             block.view_type = self.view_type;
             block.include_type = self.include_type;
             block.tags = self.tags
         }
+
+        Ok(())
     }
 }
 
@@ -379,6 +385,21 @@ pub mod rhai_page {
     pub fn set_template_contents(page: &mut Page, contents: String) {
         page.template = TemplateSelection::Value(contents);
     }
+
+    #[rhai_fn(global)]
+    pub fn set_picture_template_file(page: &mut Page, filename: String) {
+        page.picture_template = TemplateSelection::File(filename);
+    }
+
+    #[rhai_fn(global)]
+    pub fn set_picture_template_contents(page: &mut Page, contents: String) {
+        page.picture_template = TemplateSelection::Value(contents);
+    }
+
+    #[rhai_fn(global)]
+    pub fn set_picture_upload_profile(page: &mut Page, profile: String) {
+        page.picture_upload_profile = Some(profile);
+    }
 }
 
 pub fn each_block(
@@ -416,7 +437,12 @@ fn walk_block(
 
     let mut p = page.lock().unwrap();
     let block = p.blocks.get_mut(&block_id).unwrap();
-    block_config.apply_to_block(block);
+    block_config.apply_to_block(block).map_err(|e| {
+        Box::new(EvalAltResult::ErrorSystem(
+            String::from("Invalid block markdown"),
+            e.into(),
+        ))
+    })?;
 
     let next_depth = depth + 1;
     if next_depth <= max_depth {
@@ -494,7 +520,7 @@ fn autotag_block_and_children(
             .get(&block_id)
             .ok_or_else(|| format!("Could not find block {block_id}"))?;
 
-        for m in tags.matches(&block.string) {
+        for m in tags.matches(block.contents.borrow_string()) {
             let tag = &matches[m];
             results.insert(tag.clone().into_owned());
         }
@@ -561,6 +587,8 @@ pub fn run_script_on_page(
         url_name: slug,
         title,
         template: TemplateSelection::Default,
+        picture_template: TemplateSelection::Default,
+        picture_upload_profile: None,
         is_journal: page_block.is_journal,
         attrs: page_block.attrs.clone(),
         tags: page_block.tags.clone(),

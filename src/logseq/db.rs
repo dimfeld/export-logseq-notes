@@ -1,11 +1,14 @@
-use eyre::Result;
-use rusqlite::{params, Connection, OptionalExtension, Row};
-use rusqlite_migration::{Migrations, M};
 use std::{
     ops::Deref,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+
+use eyre::Result;
+use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite_migration::{Migrations, M};
+
+use crate::{image::Image, pic_store::PicStoreImageData};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MetadataDbPage {
@@ -53,6 +56,8 @@ pub struct MetadataDbInner {
     read_pool: r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
 }
 
+const IMAGE_DATA_VERSION: usize = 1;
+
 impl MetadataDb {
     pub fn new(dir: PathBuf) -> Result<MetadataDb> {
         let db_path = dir.join("export-logseq-notes.sqlite3");
@@ -61,8 +66,10 @@ impl MetadataDb {
         conn.pragma_update(None, "journal_mode", "wal")?;
         conn.pragma_update(None, "synchronous", "normal")?;
 
-        let migrations =
-            Migrations::new(vec![M::up(include_str!("./migrations/0001-initial.sql"))]);
+        let migrations = Migrations::new(vec![
+            M::up(include_str!("./migrations/0001-initial.sql")),
+            M::up(include_str!("./migrations/0002-images.sql")),
+        ]);
 
         migrations.to_latest(&mut conn)?;
 
@@ -111,6 +118,53 @@ impl MetadataDb {
             .optional()?;
 
         Ok(hash_row.map(|row| (PageMatchType::ByHash, row)))
+    }
+
+    pub fn get_image(&self, image: &Image) -> Result<Option<PicStoreImageData>> {
+        let conn = self.0.read_pool.get()?;
+        let mut stmt = conn.prepare_cached(
+            r##"SELECT data FROM images
+            WHERE filename = ? AND hash = ? AND version = ?
+            LIMIT 1"##,
+        )?;
+
+        let path = image.path.to_string_lossy();
+        let result: Option<String> = stmt
+            .query_row(
+                params![
+                    path.as_ref(),
+                    image.hash.as_bytes().as_slice(),
+                    IMAGE_DATA_VERSION
+                ],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        result
+            .map(|s| serde_json::from_str(&s))
+            .transpose()
+            .map_err(eyre::Error::from)
+    }
+
+    pub fn add_image(&self, image: &Image, data: &PicStoreImageData) -> Result<()> {
+        let conn = self.0.write_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r##"INSERT INTO images (filename, version, hash, data)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT DO UPDATE SET
+                    hash=EXCLUDED.hash,
+                    data=EXCLUDED.data,
+                    version=EXCLUDED.version"##,
+        )?;
+
+        stmt.execute(params![
+            image.path.to_string_lossy().as_ref(),
+            IMAGE_DATA_VERSION,
+            image.hash.as_bytes().as_slice(),
+            serde_json::to_string(data)?,
+        ])?;
+
+        Ok(())
     }
 }
 

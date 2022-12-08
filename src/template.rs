@@ -1,12 +1,10 @@
+use std::{borrow::Cow, fs::File, io::Read, path::Path};
+
 use ahash::HashMap;
 use chrono::TimeZone;
 use eyre::{Result, WrapErr};
 use handlebars::*;
 use itertools::Itertools;
-use std::borrow::Cow;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 
 handlebars_helper!(join: |list: array, sep: str| {
   list.iter().filter_map(|s| {
@@ -18,6 +16,7 @@ handlebars_helper!(join: |list: array, sep: str| {
   }).join(sep)
 });
 
+handlebars_helper!(iso_time: |fmt:str, t: i64| { chrono::Utc.timestamp(t / 1000, 0).to_rfc3339() });
 handlebars_helper!(format_time: |fmt:str, t: i64| { chrono::Utc.timestamp(t / 1000, 0).format(fmt).to_string() });
 handlebars_helper!(replace: |content:str, pattern: str, replacement:str | content.replace(pattern, replacement) );
 

@@ -1,6 +1,6 @@
 mod attrs;
 mod blocks;
-mod db;
+pub mod db;
 mod page_header;
 #[cfg(test)]
 mod tests;
@@ -22,14 +22,14 @@ use rusqlite::params;
 use serde::Deserialize;
 use smallvec::{smallvec, SmallVec};
 
-use crate::{
-    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
-    parse_string::ContentStyle,
-};
-
 use self::{
     blocks::LogseqRawBlock,
     db::{MetadataDb, MetadataDbPage, MetadataDbPageUpdate, PageMatchType},
+};
+use crate::{
+    content::BlockContent,
+    graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
+    parse_string::ContentStyle,
 };
 
 #[derive(Clone, Copy, Deserialize, Debug)]
@@ -73,15 +73,13 @@ impl LogseqGraph {
     // to keep the LogseqGraph around and this API isn't exposed to the outside world.
     pub fn build(
         path: PathBuf,
-        use_metadata_db: bool,
+        metadata_db: Option<MetadataDb>,
     ) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
-            root: path.clone(),
+            root: path,
             legacy_page_metadata: HashMap::default(),
         };
-
-        let metadata_db = use_metadata_db.then(|| MetadataDb::new(path)).transpose()?;
 
         lsgraph.read_legacy_page_metadata()?;
         let mut pages = lsgraph.read_page_directory("pages", &metadata_db, false)?;
@@ -390,7 +388,7 @@ impl LogseqGraph {
             containing_page: page.base_id,
             page_title: title,
             is_journal,
-            string: String::new(),
+            contents: BlockContent::new_empty(ContentStyle::Logseq),
             heading: 0,
             view_type,
             create_time,
@@ -427,7 +425,7 @@ impl LogseqGraph {
                 create_time: 0,
                 edit_time: 0,
                 view_type: input.view_type,
-                string: input.contents,
+                contents: input.contents,
                 heading: input.header_level as usize,
                 is_journal,
                 page_title: None,
@@ -437,7 +435,14 @@ impl LogseqGraph {
             blocks.insert(block.id, block);
         }
 
-        (db_meta, ParsedPage { root_block, blocks })
+        (
+            db_meta,
+            ParsedPage {
+                root_block,
+                blocks,
+                path: page.path,
+            },
+        )
     }
 }
 
@@ -536,7 +541,7 @@ fn parse_logseq_file(
 
     for string in attrs_block_contents {
         let attrs_block = LogseqRawBlock {
-            contents: string,
+            contents: BlockContent::new_parsed(ContentStyle::Logseq, string)?,
             ..Default::default()
         };
         blocks.push(attrs_block);

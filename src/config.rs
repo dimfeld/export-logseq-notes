@@ -1,12 +1,11 @@
+use std::{path::PathBuf, str::FromStr};
+
 use eyre::{eyre, Result, WrapErr};
 use serde::Deserialize;
-use std::io::Read;
-use std::path::PathBuf;
-use std::str::FromStr;
 use structopt::StructOpt;
 
-#[derive(Debug, Default, Deserialize, StructOpt)]
-struct InputConfig {
+#[derive(Debug, Default, StructOpt)]
+struct CmdlineConfig {
     #[structopt(
         short,
         long,
@@ -15,94 +14,89 @@ struct InputConfig {
     pub config: Option<PathBuf>,
 
     #[structopt(
+        short,
         long,
-        help = "Disable tracking of Logseq timestamps in a separate database"
+        env,
+        help = "The graph file to open. A Roam EDN file or a logseq directory. This can also be set in the config file."
     )]
-    pub no_track_logseq_timestamps: Option<bool>,
+    pub data: Option<PathBuf>,
 
     #[structopt(
         short,
         long,
         env,
-        help = "The graph file to open. A Roam EDN file or a logseq directory"
+        help = "Output directory. This can also be set in the config file."
     )]
-    pub data: Option<PathBuf>,
-
-    #[structopt(short, long, env, help = "Output directory")]
     pub output: Option<PathBuf>,
 
-    #[structopt(short, long, env, help = "The script to run")]
-    pub script: Option<PathBuf>,
+    #[structopt(
+        short,
+        long,
+        env,
+        help = "The PKM product that produced the file. Defaults to Logseq"
+    )]
+    pub product: Option<PkmProduct>,
+}
 
-    #[structopt(long, env, help = "Data format to read")]
+#[derive(Debug, Deserialize)]
+struct FileConfig {
+    /// Configure tracking of logseq file timestamps in a separate database. Defaults to true.
+    pub track_logseq_timestamps: Option<bool>,
+
+    /// The graph file to open. A Roam EDN file or a logseq directory. Must be specified if not
+    /// given on the command line.
+    pub data: Option<PathBuf>,
+
+    /// Output directory. Must be specified if not given on the command line.
+    pub output: Option<PathBuf>,
+
+    /// The script to run
+    pub script: PathBuf,
+
+    /// Data format to read. Defaults to Logseq
     pub product: Option<PkmProduct>,
 
-    #[structopt(long, env, help = "Base URL to apply to relative hyperlinks")]
+    /// Base URL to apply to relative hyperlinks
     pub base_url: Option<String>,
 
-    #[structopt(long, env, help = "Skip rendering blocks with these attributes")]
+    /// Skip rendering blocks with these attributes
     pub omit_attributes: Option<Vec<String>>,
 
-    #[structopt(
-        long,
-        env,
-        help = "When highlighting code, prefix class names with this value"
-    )]
+    /// When highlighting code, prefix class names with this value
     pub highlight_class_prefix: Option<String>,
 
-    #[structopt(
-        long,
-        env,
-        help = "Template file for each rendered page, if not set from the script"
-    )]
+    /// Template file for each rendered page, if not set from the script
     pub template: Option<PathBuf>,
 
-    #[structopt(long = "ext", env, help = "Output file extension. Default: html")]
+    /// Output file extension. Default: html
     pub extension: Option<String>,
 
-    #[structopt(short, long, env, help = "Attribute that indicates tags for a page")]
+    /// Attribute that indicates tags for a page
     pub tags_attr: Option<String>,
 
-    #[structopt(
-        long,
-        env,
-        help = "If a block contains only links and hashtags, omit any references to unexported pages."
-    )]
+    /// If a block contains only links and hashtags, omit any references to unexported pages.
     pub filter_link_only_blocks: Option<bool>,
 
     // Syntax highlighter configuration
-    #[structopt(long, env)]
     pub class_bold: Option<String>,
-    #[structopt(long, env)]
     pub class_italic: Option<String>,
-    #[structopt(long, env)]
     pub class_strikethrough: Option<String>,
-    #[structopt(long, env)]
     pub class_highlight: Option<String>,
-    #[structopt(long, env)]
     pub class_blockquote: Option<String>,
-    #[structopt(long, env)]
     pub class_hr: Option<String>,
-    #[structopt(long, env)]
     pub class_block_embed: Option<String>,
-    #[structopt(long, env)]
     pub class_page_embed_container: Option<String>,
-    #[structopt(long, env)]
     pub class_page_embed_title: Option<String>,
-    #[structopt(long, env)]
     pub class_page_embed_content: Option<String>,
-    #[structopt(long, env)]
     pub class_attr_name: Option<String>,
-    #[structopt(long, env)]
     pub class_attr_value: Option<String>,
-    #[structopt(long, env)]
     pub class_heading1: Option<String>,
-    #[structopt(long, env)]
     pub class_heading2: Option<String>,
-    #[structopt(long, env)]
     pub class_heading3: Option<String>,
-    #[structopt(long, env)]
     pub class_heading4: Option<String>,
+
+    /// Configuration for a Pic Store instance, to upload local images to the web.
+    pub pic_store: Option<PicStoreConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,6 +154,25 @@ pub struct Config {
     pub class_heading2: String,
     pub class_heading3: String,
     pub class_heading4: String,
+
+    pub pic_store: Option<PicStoreConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PicStoreConfig {
+    /// The URL of the Pic Store instance to use.
+    pub url: String,
+    /// The API key to use for requests to Pic Store. This can also come from the PIC_STORE_KEY
+    /// environment variable.
+    pub api_key: Option<String>,
+    /// The location prefix to use for Pic Store images. This will stack on top of any prefixes
+    /// configured in the project or upload profile.
+    pub location_prefix: Option<String>,
+    /// The upload profile to use, if not the default one.
+    pub upload_profile: Option<String>,
+    /// A path to a template to generate <picture> tags. This can also be overridden from the page script.
+    /// If not provided, a default template is used that generates a simple <picture> tag.
+    pub template: Option<PathBuf>,
 }
 
 fn merge_required<T>(name: &str, first: Option<T>, second: Option<T>) -> Result<T> {
@@ -172,99 +185,66 @@ fn merge_default<T: Default>(first: Option<T>, second: Option<T>) -> T {
     first.or(second).unwrap_or_default()
 }
 
-fn merge_or<T>(first: Option<T>, second: Option<T>, fallback: T) -> T {
-    first.or(second).unwrap_or(fallback)
-}
-
 impl Config {
     pub fn load() -> Result<Config> {
         dotenv::dotenv().ok();
 
-        // Read both from the arguments and from the config file.
+        let cmdline_cfg = CmdlineConfig::from_args();
+        let config_file = std::fs::read_to_string(
+            cmdline_cfg
+                .config
+                .as_ref()
+                .unwrap_or(&PathBuf::from("export-logseq-notes.toml")),
+        )
+        .context("Failed to open config file")?;
 
-        let cmdline_cfg = InputConfig::from_args();
-        let config_file_path = cmdline_cfg.config.as_ref();
-        let config_file = std::fs::File::open(
-            config_file_path.unwrap_or(&PathBuf::from("export-logseq-notes.toml")),
-        );
+        let mut file_cfg: FileConfig = toml::from_str(&config_file)?;
 
-        let file_cfg = match (config_file, &cmdline_cfg.config) {
-            (Ok(mut f), _) => {
-                let mut data = String::new();
-                f.read_to_string(&mut data)?;
-                let cfg: InputConfig = toml::from_str(&data)?;
-                cfg
+        if let Some(pc) = file_cfg.pic_store.as_mut() {
+            if pc.api_key.is_none() {
+                let key = match std::env::var("PIC_STORE_KEY") {
+                    Ok(k) => k,
+                    Err(_) => {
+                        return Err(eyre!(
+                            "The PIC_STORE_KEY environment variable or the pic_store.api_key config key must be set to use Pic Store"
+                        ))
+                    }
+                };
+
+                pc.api_key = Some(key);
             }
-            (Err(e), Some(_)) => {
-                // A config was explicitly specified, so it's an error to not find it.
-                return Err(e).context("Failed to open config file");
-            }
-            (Err(_), None) => {
-                // The user didn't spcify a config filename, so it's ok if the file doesn't
-                // exist.
-                InputConfig::default()
-            }
-        };
+        }
 
         let mut cfg = Config {
             path: merge_required("data", cmdline_cfg.data, file_cfg.data)?,
-            track_logseq_timestamps: !merge_or(
-                cmdline_cfg.no_track_logseq_timestamps,
-                file_cfg.no_track_logseq_timestamps,
-                false,
-            ),
+            track_logseq_timestamps: file_cfg.track_logseq_timestamps.unwrap_or(true),
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
-            script: merge_required("script", cmdline_cfg.script, file_cfg.script)?,
+            script: file_cfg.script,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
-            base_url: cmdline_cfg.base_url.or(file_cfg.base_url),
-            omit_attributes: merge_default(cmdline_cfg.omit_attributes, file_cfg.omit_attributes),
-            highlight_class_prefix: cmdline_cfg
-                .highlight_class_prefix
-                .or(file_cfg.highlight_class_prefix),
-            template: cmdline_cfg.template.or(file_cfg.template),
-            extension: merge_default(cmdline_cfg.extension, file_cfg.extension),
-            tags_attr: cmdline_cfg.tags_attr.or(file_cfg.tags_attr),
-            filter_link_only_blocks: merge_default(
-                cmdline_cfg.filter_link_only_blocks,
-                file_cfg.filter_link_only_blocks,
-            ),
-            class_bold: merge_default(cmdline_cfg.class_bold, file_cfg.class_bold),
-            class_italic: merge_default(cmdline_cfg.class_italic, file_cfg.class_italic),
-            class_strikethrough: merge_default(
-                cmdline_cfg.class_strikethrough,
-                file_cfg.class_strikethrough,
-            ),
-            class_highlight: merge_default(cmdline_cfg.class_highlight, file_cfg.class_highlight),
-            class_blockquote: merge_default(
-                cmdline_cfg.class_blockquote,
-                file_cfg.class_blockquote,
-            ),
-            class_hr: merge_default(cmdline_cfg.class_hr, file_cfg.class_hr),
-            class_block_embed: merge_default(
-                cmdline_cfg.class_block_embed,
-                file_cfg.class_block_embed,
-            ),
-            class_page_embed_container: merge_default(
-                cmdline_cfg.class_page_embed_container,
-                file_cfg.class_page_embed_container,
-            ),
-            class_page_embed_title: merge_default(
-                cmdline_cfg.class_page_embed_title,
-                file_cfg.class_page_embed_title,
-            ),
-            class_page_embed_content: merge_default(
-                cmdline_cfg.class_page_embed_content,
-                file_cfg.class_page_embed_content,
-            ),
-            class_attr_name: merge_default(cmdline_cfg.class_attr_name, file_cfg.class_attr_name),
-            class_attr_value: merge_default(
-                cmdline_cfg.class_attr_value,
-                file_cfg.class_attr_value,
-            ),
-            class_heading1: merge_default(cmdline_cfg.class_heading1, file_cfg.class_heading1),
-            class_heading2: merge_default(cmdline_cfg.class_heading2, file_cfg.class_heading2),
-            class_heading3: merge_default(cmdline_cfg.class_heading3, file_cfg.class_heading3),
-            class_heading4: merge_default(cmdline_cfg.class_heading4, file_cfg.class_heading4),
+            base_url: file_cfg.base_url,
+            omit_attributes: file_cfg.omit_attributes.unwrap_or_default(),
+            highlight_class_prefix: file_cfg.highlight_class_prefix,
+            template: file_cfg.template,
+            extension: file_cfg.extension.unwrap_or_default(),
+            tags_attr: file_cfg.tags_attr,
+            filter_link_only_blocks: file_cfg.filter_link_only_blocks.unwrap_or_default(),
+            class_bold: file_cfg.class_bold.unwrap_or_default(),
+            class_italic: file_cfg.class_italic.unwrap_or_default(),
+            class_strikethrough: file_cfg.class_strikethrough.unwrap_or_default(),
+            class_highlight: file_cfg.class_highlight.unwrap_or_default(),
+            class_blockquote: file_cfg.class_blockquote.unwrap_or_default(),
+            class_hr: file_cfg.class_hr.unwrap_or_default(),
+            class_block_embed: file_cfg.class_block_embed.unwrap_or_default(),
+            class_page_embed_container: file_cfg.class_page_embed_container.unwrap_or_default(),
+            class_page_embed_title: file_cfg.class_page_embed_title.unwrap_or_default(),
+            class_page_embed_content: file_cfg.class_page_embed_content.unwrap_or_default(),
+            class_attr_name: file_cfg.class_attr_name.unwrap_or_default(),
+            class_attr_value: file_cfg.class_attr_value.unwrap_or_default(),
+            class_heading1: file_cfg.class_heading1.unwrap_or_default(),
+            class_heading2: file_cfg.class_heading2.unwrap_or_default(),
+            class_heading3: file_cfg.class_heading3.unwrap_or_default(),
+            class_heading4: file_cfg.class_heading4.unwrap_or_default(),
+            pic_store: file_cfg.pic_store,
         };
 
         // Make sure base url starts and ends with a slash

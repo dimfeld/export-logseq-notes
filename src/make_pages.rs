@@ -1,19 +1,23 @@
-use crate::config::Config;
-use crate::graph::{Graph, ParsedPage};
-use crate::page::{IdSlugUid, ManifestItem, Page, TitleSlugUid};
-use crate::parse_string::ContentStyle;
-use crate::script::{run_script_on_page, AllowEmbed, TemplateSelection};
-use crate::syntax_highlight;
+use std::{collections::BTreeMap, io::Write, path::PathBuf};
+
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
 use itertools::Itertools;
 use rayon::prelude::*;
-use rhai::packages::Package;
-use rhai::Engine;
+use rhai::{packages::Package, Engine};
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::io::Write;
-use std::path::PathBuf;
+
+use crate::{
+    config::Config,
+    graph::{Graph, ParsedPage},
+    image::{image_full_path, Images},
+    logseq::db::MetadataDb,
+    page::{IdSlugUid, ManifestItem, Page, TitleSlugUid},
+    parse_string::{ContentStyle, Expression},
+    pic_store::PicStoreClient,
+    script::{run_script_on_page, AllowEmbed, PageConfig, TemplateSelection},
+    syntax_highlight,
+};
 
 #[derive(Serialize, Debug)]
 struct TemplateArgs<'a> {
@@ -46,20 +50,72 @@ fn create_path(page_base: &str, default_base: &str, filename: &str) -> String {
     format!("{base}/{filename}")
 }
 
+struct ExtractedImage {
+    path: PathBuf,
+}
+
+struct ExpressionContents {
+    image_paths: Vec<ExtractedImage>,
+    page_embeds: Vec<String>,
+}
+
+fn examine_expressions(
+    contents: &mut ExpressionContents,
+    page: &ParsedPage,
+    expressions: &[Expression],
+) {
+    for expr in expressions {
+        match expr {
+            Expression::Image { url, .. } => {
+                if let Some(path) = image_full_path(&page.path, url) {
+                    contents.image_paths.push(ExtractedImage { path });
+                }
+            }
+            Expression::PageEmbed(uid) => {
+                contents.page_embeds.push(uid.to_string());
+            }
+            _ => {}
+        }
+
+        let contained = expr.contained_expressions();
+        if !contained.is_empty() {
+            examine_expressions(contents, page, contained);
+        }
+    }
+}
+
+fn examine_tags(contents: &mut ExpressionContents, page: &ParsedPage, block_index: usize) {
+    let block = page.blocks.get(&block_index).unwrap();
+
+    examine_expressions(contents, page, block.contents.borrow_parsed());
+
+    for child in &block.children {
+        examine_tags(contents, page, *child);
+    }
+}
+
+struct ProcessedPage {
+    config: PageConfig,
+    blocks: ParsedPage,
+    notable: ExpressionContents,
+    slug: String,
+}
+
 pub fn make_pages_from_script(
     pages: Vec<ParsedPage>,
     content_style: ContentStyle,
     explicit_ordering: bool,
     mut templates: crate::template::DedupingTemplateRegistry,
     highlighter: &syntax_highlight::Highlighter,
-    config: &Config,
+    global_config: &Config,
+    metadata_db: Option<MetadataDb>,
 ) -> Result<(usize, usize)> {
     let package = crate::script::ParsePackage::new();
     let mut parse_engine = Engine::new_raw();
     package.register_into_engine(&mut parse_engine);
 
     let ast = parse_engine
-        .compile_file(config.script.clone())
+        .compile_file(global_config.script.clone())
         .wrap_err("Parsing script")?;
 
     let mut pages = pages
@@ -67,27 +123,92 @@ pub fn make_pages_from_script(
         .map(|parsed_page| {
             let (page_config, page_blocks) =
                 run_script_on_page(&package, &ast, parsed_page).wrap_err("Running script")?;
+
             let slug = create_path(
                 page_config.url_base.as_str(),
-                config.base_url.as_deref().unwrap_or(""),
+                global_config.base_url.as_deref().unwrap_or(""),
                 page_config.url_name.as_str(),
             );
 
-            Ok::<_, eyre::Report>((page_config, page_blocks, slug))
+            let mut notable = ExpressionContents {
+                image_paths: Vec::new(),
+                page_embeds: Vec::new(),
+            };
+            examine_tags(&mut notable, &page_blocks, page_blocks.root_block);
+
+            Ok::<_, eyre::Report>(ProcessedPage {
+                config: page_config,
+                blocks: page_blocks,
+                notable,
+                slug,
+            })
         })
         .filter(|result| match result {
-            Ok((page, _, _)) => page.include || page.allow_embedding == AllowEmbed::Yes,
+            Ok(ProcessedPage { config, .. }) => {
+                config.include || config.allow_embedding == AllowEmbed::Yes
+            }
             _ => true,
         })
         .collect::<Result<Vec<_>>>()?;
 
+    let embedded_pages = pages
+        .iter()
+        .flat_map(|page| page.notable.page_embeds.iter().map(|s| s.to_string()))
+        .collect::<HashSet<_>>();
+
+    // Sync the images with the CDN
+    let image_info = if let Some(pc_config) = global_config.pic_store.as_ref() {
+        let pc_client = PicStoreClient::new(pc_config)?;
+        let images = Images::new(global_config.path.clone(), pc_client, metadata_db.unwrap());
+
+        let image_paths = pages
+            .iter_mut()
+            .filter(|ProcessedPage { config, blocks, .. }| {
+                // The list of pages above includes not only explicitly included pages, but all
+                // those that might be eligible for embedding. Here we want to filter that down to
+                // just those that will actually be used in the output somewhere.
+                if config.include {
+                    return true;
+                }
+
+                let orig_title = blocks
+                    .blocks
+                    .get(&blocks.root_block)
+                    .unwrap()
+                    .page_title
+                    .as_deref()
+                    .unwrap_or("");
+
+                embedded_pages.contains(orig_title)
+            })
+            .flat_map(
+                |ProcessedPage {
+                     config, notable, ..
+                 }| {
+                    notable
+                        .image_paths
+                        .drain(..)
+                        .map(|path| (config.picture_upload_profile.as_deref(), path))
+                },
+            )
+            .collect::<Vec<_>>();
+
+        image_paths
+            .into_par_iter()
+            .try_for_each(|(profile_override, path)| images.add(path.path, profile_override))?;
+
+        images.finish()?
+    } else {
+        HashMap::default()
+    };
+
     let page_templates = pages
         .iter_mut()
-        .map(|(page, _, _)| {
-            let template_key = match std::mem::take(&mut page.template) {
+        .map(|ProcessedPage { config, .. }| {
+            let template_key = match std::mem::take(&mut config.template) {
                 TemplateSelection::Default => {
-                    if config.template.is_none() {
-                        return Err(eyre!("Config has no default template, but page {} does not specify a template", page.title));
+                    if global_config.template.is_none() {
+                        return Err(eyre!("Config has no default template, but page {} does not specify a template", config.title));
                     }
                     "default".to_string()
                 },
@@ -95,41 +216,56 @@ pub fn make_pages_from_script(
                 TemplateSelection::Value(v) => templates.add_string(v)?,
             };
 
-            Ok::<_, eyre::Report>((page.root_block, template_key))
+            let picture_template_key = match std::mem::take(&mut config.picture_template) {
+                TemplateSelection::Default => {
+                    "default_picture".to_string()
+                }
+                TemplateSelection::File(f) => templates.add_file(&PathBuf::from(f))?,
+                TemplateSelection::Value(v) => templates.add_string(v)?,
+            };
+
+            Ok::<_, eyre::Report>((config.root_block, (template_key, picture_template_key)))
         })
         .collect::<Result<HashMap<_, _>>>()?;
 
     let pages_by_title = pages
         .iter()
-        .map(|(p, blocks, slug)| {
-            // Get the original title, not whatever the script might have changed it to, so that
-            // links go to the correct place.
-            let orig_title = blocks
-                .blocks
-                .get(&p.root_block)
-                .unwrap()
-                .page_title
-                .as_deref()
-                .unwrap_or("")
-                .to_string();
+        .map(
+            |ProcessedPage {
+                 config,
+                 blocks,
+                 slug,
+                 ..
+             }| {
+                // Get the original title, not whatever the script might have changed it to, so that
+                // links go to the correct place.
+                let orig_title = blocks
+                    .blocks
+                    .get(&config.root_block)
+                    .unwrap()
+                    .page_title
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_string();
 
-            (
-                orig_title,
-                IdSlugUid {
-                    id: p.root_block,
-                    output_title: p.title.clone(),
-                    include: p.include,
-                    allow_embed: match (p.include, p.allow_embedding) {
-                        (true, AllowEmbed::Yes | AllowEmbed::Default) => true,
-                        (true, AllowEmbed::No) => false,
-                        (false, AllowEmbed::Yes) => true,
-                        (false, AllowEmbed::No | AllowEmbed::Default) => false,
+                (
+                    orig_title,
+                    IdSlugUid {
+                        id: config.root_block,
+                        output_title: config.title.clone(),
+                        include: config.include,
+                        allow_embed: match (config.include, config.allow_embedding) {
+                            (true, AllowEmbed::Yes | AllowEmbed::Default) => true,
+                            (true, AllowEmbed::No) => false,
+                            (false, AllowEmbed::Yes) => true,
+                            (false, AllowEmbed::No | AllowEmbed::Default) => false,
+                        },
+                        slug: slug.clone(),
+                        uid: blocks.blocks.get(&config.root_block).unwrap().uid.clone(),
                     },
-                    slug: slug.clone(),
-                    uid: blocks.blocks.get(&p.root_block).unwrap().uid.clone(),
-                },
-            )
-        })
+                )
+            },
+        )
         .collect::<HashMap<_, _>>();
 
     let pages_by_id = pages_by_title
@@ -148,9 +284,9 @@ pub fn make_pages_from_script(
         })
         .collect::<HashMap<_, _>>();
 
-    let default_output_dir = config.output.to_string_lossy();
+    let default_output_dir = global_config.output.to_string_lossy();
 
-    let omitted_attributes = config
+    let omitted_attributes = global_config
         .omit_attributes
         .iter()
         .map(|x| x.as_str())
@@ -159,7 +295,7 @@ pub fn make_pages_from_script(
     let handlebars = templates.into_inner();
 
     let mut graph = Graph::new(content_style, explicit_ordering);
-    for (_, blocks, _) in pages.iter_mut() {
+    for ProcessedPage { blocks, .. } in pages.iter_mut() {
         let blocks = std::mem::take(&mut blocks.blocks);
         for (_, block) in blocks {
             graph.add_block(block);
@@ -168,95 +304,104 @@ pub fn make_pages_from_script(
 
     let results = pages
         .into_par_iter()
-        .map(|(page_config, blocks, slug)| {
-            if !page_config.include {
-                return Ok(None);
-            }
+        .map(
+            |ProcessedPage {
+                 config,
+                 blocks,
+                 slug,
+                 ..
+             }| {
+                if !config.include {
+                    return Ok(None);
+                }
 
-            let filename = if page_config.path_name.is_empty() {
-                format!("{}.{}", page_config.url_name, config.extension)
-            } else {
-                page_config.path_name
-            };
+                let filename = if config.path_name.is_empty() {
+                    format!("{}.{}", config.url_name, global_config.extension)
+                } else {
+                    config.path_name
+                };
 
-            let output_path = create_path(
-                page_config.path_base.as_str(),
-                default_output_dir.as_ref(),
-                &filename,
-            );
+                let output_path = create_path(
+                    config.path_base.as_str(),
+                    default_output_dir.as_ref(),
+                    &filename,
+                );
 
-            let page = Page {
-                id: page_config.root_block,
-                title: page_config.title,
-                slug: slug.as_str(),
-                latest_found_edit_time: std::cell::Cell::new(0),
-                graph: &graph,
-                config,
-                pages_by_title: &pages_by_title,
-                pages_by_id: &pages_by_id,
-                omitted_attributes: &omitted_attributes,
-                highlighter,
-            };
+                let (template_key, picture_template_key) =
+                    page_templates
+                        .get(&config.root_block)
+                        .ok_or_else(|| eyre!("Failed to find template for page"))?;
 
-            let block = graph.blocks.get(&page.id).unwrap();
+                let page = Page {
+                    id: config.root_block,
+                    title: config.title,
+                    slug: slug.as_str(),
+                    path: blocks.path,
+                    latest_found_edit_time: std::cell::Cell::new(0),
+                    graph: &graph,
+                    config: global_config,
+                    pages_by_title: &pages_by_title,
+                    pages_by_id: &pages_by_id,
+                    omitted_attributes: &omitted_attributes,
+                    highlighter,
+                    handlebars: &handlebars,
+                    picture_template_key,
+                    image_info: &image_info,
+                };
 
-            let (rendered, hashtags) = page.render()?;
+                let block = graph.blocks.get(&page.id).unwrap();
 
-            if rendered.is_empty() {
-                return Ok(None);
-            }
+                let rendered = page.render()?;
 
-            let mut tags = page_config
-                .tags
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>();
-            tags.sort_by_key(|k| k.to_lowercase());
-            tags.dedup();
+                if rendered.is_empty() {
+                    return Ok(None);
+                }
 
-            // println!("{:?} {:?}", title, tags);
+                let mut tags = config.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+                tags.sort_by_key(|k| k.to_lowercase());
+                tags.dedup();
 
-            let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
+                // println!("{:?} {:?}", title, tags);
 
-            let template_data = TemplateArgs {
-                title: page.title.as_str(),
-                body: &rendered,
-                tags,
-                created_time: block.create_time,
-                edited_time,
-            };
+                let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
 
-            let template_key = page_templates
-                .get(&page.id)
-                .ok_or_else(|| eyre!("Failed to find template for page"))?;
-            let full_page = handlebars.render(template_key, &template_data)?;
+                let template_data = TemplateArgs {
+                    title: page.title.as_str(),
+                    body: &rendered,
+                    tags,
+                    created_time: block.create_time,
+                    edited_time,
+                };
 
-            let content_matches = match std::fs::read_to_string(&output_path) {
-                Ok(existing) => existing == full_page,
-                Err(_) => false,
-            };
+                let full_page = handlebars.render(template_key, &template_data)?;
 
-            if !content_matches {
-                let mut writer = std::fs::File::create(&output_path)
-                    .with_context(|| format!("Writing {}", output_path))?;
-                writer.write_all(full_page.as_bytes())?;
-                writer.flush()?;
+                let content_matches = match std::fs::read_to_string(&output_path) {
+                    Ok(existing) => existing == full_page,
+                    Err(_) => false,
+                };
 
-                println!("Wrote: \"{title}\" to {slug}", title = page.title);
-            }
+                if !content_matches {
+                    let mut writer = std::fs::File::create(&output_path)
+                        .with_context(|| format!("Writing {}", output_path))?;
+                    writer.write_all(full_page.as_bytes())?;
+                    writer.flush()?;
 
-            Ok::<_, eyre::Report>(Some((
-                output_path,
-                (
-                    content_matches,
-                    ManifestItem {
-                        title: page.title.to_string(),
-                        slug,
-                        uid: block.uid.clone(),
-                    },
-                ),
-            )))
-        })
+                    println!("Wrote: \"{title}\" to {slug}", title = page.title);
+                }
+
+                Ok::<_, eyre::Report>(Some((
+                    output_path,
+                    (
+                        content_matches,
+                        ManifestItem {
+                            title: page.title.to_string(),
+                            slug,
+                            uid: block.uid.clone(),
+                        },
+                    ),
+                )))
+            },
+        )
         .filter_map(|p| p.transpose())
         // Use BTreeMap since it gets us sorted keys in the output, which is good for
         // minimizing Git churn on the manifest.
@@ -267,7 +412,7 @@ pub fn make_pages_from_script(
         .map(|(k, (_, manifest_item))| (k, manifest_item))
         .collect::<BTreeMap<_, _>>();
 
-    let manifest_path = config.output.join("manifest.json");
+    let manifest_path = global_config.output.join("manifest.json");
     let mut manifest_writer = std::fs::File::create(&manifest_path)
         .with_context(|| format!("Writing {}", manifest_path.display()))?;
     serde_json::to_writer_pretty(&manifest_writer, &manifest_data)?;

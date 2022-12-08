@@ -234,9 +234,26 @@ fn markdown_link() {
         input,
         vec![
             Expression::Text("For actually communicating, "),
-            Expression::MarkdownLink {
+            Expression::MarkdownExternalLink {
                 title: "spiped",
                 url: "https://www.tarsnap.com/spiped.html",
+            },
+            Expression::Text(" is nice"),
+        ],
+    )
+}
+
+#[test]
+fn markdown_link_with_embedded_parens() {
+    let input =
+        r##"For actually communicating, [spiped](https://www.tarsnap.com/sp(i)ped.html) is nice"##;
+    test_parse_all_styles(
+        input,
+        vec![
+            Expression::Text("For actually communicating, "),
+            Expression::MarkdownExternalLink {
+                title: "spiped",
+                url: "https://www.tarsnap.com/sp(i)ped.html",
             },
             Expression::Text(" is nice"),
         ],
@@ -402,7 +419,7 @@ fn real_world_7() {
         input,
         vec![
             Expression::Text("("),
-            Expression::MarkdownLink {
+            Expression::MarkdownExternalLink {
                 title: "Location 1062",
                 url: "https://readwise.io/to_kindle?action=open&asin=2232&location=1062",
             },

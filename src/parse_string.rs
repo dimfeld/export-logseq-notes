@@ -1,8 +1,10 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_until, take_while1},
-    character::complete::{char, multispace0},
-    character::{complete::multispace1, is_newline},
+    character::{
+        complete::{char, multispace0, multispace1},
+        is_newline,
+    },
     combinator::{all_consuming, cond, map, map_opt, map_parser, opt},
     error::context,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
@@ -57,6 +59,72 @@ pub enum Expression<'a> {
     HRule,
 }
 
+impl<'a> Expression<'a> {
+    pub fn contained_expressions(&self) -> &[Expression<'a>] {
+        match self {
+            Expression::Bold(exprs) => exprs,
+            Expression::Italic(exprs) => exprs,
+            Expression::Strike(exprs) => exprs,
+            Expression::Highlight(exprs) => exprs,
+            Expression::BlockQuote(exprs) => exprs,
+            Expression::Attribute { value, .. } => value,
+            _ => &[],
+        }
+    }
+}
+
+/// Take a string delimited by some characters, but track how many times the delimiter pairs
+/// themselves also appear in the string.
+/// From https://gitlab.com/getreu/parse-hyperlinks/-/blob/master/parse-hyperlinks/src/lib.rs
+fn take_until_unbalanced(
+    opening_bracket: char,
+    closing_bracket: char,
+) -> impl Fn(&str) -> IResult<&str, &str> {
+    move |i: &str| {
+        let mut index = 0;
+        let mut bracket_counter = 0;
+        while let Some(n) = &i[index..].find(&[opening_bracket, closing_bracket, '\\'][..]) {
+            index += n;
+            let mut it = i[index..].chars();
+            match it.next().unwrap_or_default() {
+                c if c == '\\' => {
+                    // Skip the escape char `\`.
+                    index += '\\'.len_utf8();
+                    // Skip also the following char.
+                    let c = it.next().unwrap_or_default();
+                    index += c.len_utf8();
+                }
+                c if c == opening_bracket => {
+                    bracket_counter += 1;
+                    index += opening_bracket.len_utf8();
+                }
+                c if c == closing_bracket => {
+                    // Closing bracket.
+                    bracket_counter -= 1;
+                    index += closing_bracket.len_utf8();
+                }
+                // Can not happen.
+                _ => unreachable!(),
+            };
+            // We found the unmatched closing bracket.
+            if bracket_counter == -1 {
+                // We do not consume it.
+                index -= closing_bracket.len_utf8();
+                return Ok((&i[index..], &i[0..index]));
+            };
+        }
+
+        if bracket_counter == 0 {
+            Ok(("", i))
+        } else {
+            Err(nom::Err::Error(nom::error::Error::new(
+                i,
+                nom::error::ErrorKind::TakeUntil,
+            )))
+        }
+    }
+}
+
 fn nonws_char(c: char) -> bool {
     !c.is_whitespace() && !is_newline(c as u8)
 }
@@ -85,7 +153,7 @@ fn link(input: &str) -> IResult<&str, &str> {
 fn markdown_link(input: &str) -> IResult<&str, (&str, &str)> {
     pair(
         fenced("[", "]"),
-        delimited(char('('), is_not(")"), char(')')),
+        delimited(char('('), take_until_unbalanced('(', ')'), char(')')),
     )(input)
 }
 
@@ -355,10 +423,10 @@ fn logseq_todo(input: &str) -> IResult<&str, Expression> {
     ))(input)
 }
 
-pub fn parse(
+pub fn parse<'a>(
     content_style: ContentStyle,
-    input: &str,
-) -> Result<Vec<Expression>, nom::Err<nom::error::Error<&str>>> {
+    input: &'a str,
+) -> Result<Vec<Expression<'a>>, nom::Err<nom::error::Error<&'a str>>> {
     alt((
         map(all_consuming(tag("---")), |_| vec![Expression::HRule]),
         map(
