@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::TryFrom, mem, str::FromStr};
+use std::{collections::BTreeMap, convert::TryFrom, mem, path::PathBuf, str::FromStr};
 
 use ahash::{HashMap, HashMapExt};
 use edn_rs::{Edn, EdnError};
@@ -441,6 +441,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<Parsed
         let p = pages
             .entry(block.containing_page)
             .or_insert_with(|| ParsedPage {
+                path: PathBuf::from(path),
                 root_block: block.containing_page,
                 blocks: HashMap::default(),
             });

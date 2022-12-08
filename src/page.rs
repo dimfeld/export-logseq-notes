@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::{cell::Cell, path::PathBuf};
 
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
@@ -8,7 +8,7 @@ use crate::{
     config::Config,
     graph::{Block, BlockInclude, Graph, ViewType},
     html,
-    image::ImageInfo,
+    image::{image_full_path, ImageInfo},
     parse_string::{parse, Expression},
     string_builder::StringBuilder,
     syntax_highlight,
@@ -46,6 +46,7 @@ pub struct Page<'a> {
     pub latest_found_edit_time: Cell<u64>,
 
     pub graph: &'a Graph,
+    pub path: PathBuf,
     pub config: &'a Config,
     pub pages_by_title: &'a HashMap<String, IdSlugUid>,
     pub pages_by_id: &'a HashMap<usize, TitleSlugUid>,
@@ -162,7 +163,8 @@ impl<'a> Page<'a> {
     }
 
     fn render_image(&self, url: &str, alt: &str) -> Result<StringBuilder> {
-        let image_info = self.image_info.get(url);
+        let image_info = image_full_path(&self.path, url)
+            .and_then(|path| self.image_info.get(path.to_string_lossy().as_ref()));
 
         match image_info {
             Some(info) => {

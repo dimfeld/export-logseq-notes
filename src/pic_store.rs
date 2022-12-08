@@ -32,7 +32,10 @@ impl PicStoreClient {
 
         match lookup_response.status() {
             reqwest::StatusCode::OK => {
-                let image_data: PicStoreImageData = lookup_response.json()?;
+                let mut image_data: PicStoreImageData = lookup_response.json()?;
+                image_data
+                    .output
+                    .sort_unstable_by_key(|o| o.file_size.unwrap_or_default());
                 Ok(Some(image_data))
             }
             reqwest::StatusCode::NOT_FOUND => Ok(None),
@@ -73,6 +76,7 @@ impl PicStoreClient {
                 .or_else(|| self.config.upload_profile.clone()),
         };
 
+        println!("Uploading {}...", filename);
         let new_image: NewBaseImageResult = self
             .client
             .post(&format!("{}/api/images", self.config.url))
@@ -98,7 +102,9 @@ impl PicStoreClient {
             self.client.get(&url).send()?.error_for_status()?.json()?;
 
         if response.status == "ready" {
-            response.output.sort_unstable_by_key(|o| o.file_size);
+            response
+                .output
+                .sort_unstable_by_key(|o| o.file_size.unwrap_or_default());
             Ok(Some(response))
         } else {
             Ok(None)
@@ -128,10 +134,10 @@ pub struct PicStoreImageData {
     pub id: String,
     pub status: String,
     pub url: String,
-    pub width: u32,
-    pub height: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
     pub alt_text: String,
-    pub file_size: u32,
+    pub file_size: Option<u32>,
     pub output: Vec<PicStoreImageOutput>,
 }
 
@@ -140,8 +146,8 @@ pub struct PicStoreImageOutput {
     pub id: String,
     pub url: String,
     pub status: String,
-    pub file_size: u32,
-    pub width: u32,
-    pub height: u32,
+    pub file_size: Option<u32>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
     pub format: String,
 }

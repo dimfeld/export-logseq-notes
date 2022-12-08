@@ -77,7 +77,7 @@ impl LogseqGraph {
     ) -> Result<(ContentStyle, bool, Vec<ParsedPage>)> {
         let mut lsgraph = LogseqGraph {
             next_id: 0,
-            root: path.clone(),
+            root: path,
             legacy_page_metadata: HashMap::default(),
         };
 
@@ -435,7 +435,14 @@ impl LogseqGraph {
             blocks.insert(block.id, block);
         }
 
-        (db_meta, ParsedPage { root_block, blocks })
+        (
+            db_meta,
+            ParsedPage {
+                root_block,
+                blocks,
+                path: page.path,
+            },
+        )
     }
 }
 

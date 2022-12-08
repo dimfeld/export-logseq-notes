@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::{
     config::Config,
     graph::{Graph, ParsedPage},
-    image::Images,
+    image::{image_full_path, Images},
     logseq::db::MetadataDb,
     page::{IdSlugUid, ManifestItem, Page, TitleSlugUid},
     parse_string::{ContentStyle, Expression},
@@ -51,7 +51,7 @@ fn create_path(page_base: &str, default_base: &str, filename: &str) -> String {
 }
 
 struct ExtractedImage {
-    url: String,
+    path: PathBuf,
 }
 
 struct ExpressionContents {
@@ -59,14 +59,16 @@ struct ExpressionContents {
     page_embeds: Vec<String>,
 }
 
-fn examine_expressions(contents: &mut ExpressionContents, expressions: &[Expression]) {
+fn examine_expressions(
+    contents: &mut ExpressionContents,
+    page: &ParsedPage,
+    expressions: &[Expression],
+) {
     for expr in expressions {
         match expr {
             Expression::Image { url, .. } => {
-                if !url.starts_with("http") {
-                    contents.image_paths.push(ExtractedImage {
-                        url: url.to_string(),
-                    });
+                if let Some(path) = image_full_path(&page.path, url) {
+                    contents.image_paths.push(ExtractedImage { path });
                 }
             }
             Expression::PageEmbed(uid) => {
@@ -77,7 +79,7 @@ fn examine_expressions(contents: &mut ExpressionContents, expressions: &[Express
 
         let contained = expr.contained_expressions();
         if !contained.is_empty() {
-            examine_expressions(contents, contained);
+            examine_expressions(contents, page, contained);
         }
     }
 }
@@ -85,7 +87,7 @@ fn examine_expressions(contents: &mut ExpressionContents, expressions: &[Express
 fn examine_tags(contents: &mut ExpressionContents, page: &ParsedPage, block_index: usize) {
     let block = page.blocks.get(&block_index).unwrap();
 
-    examine_expressions(contents, block.contents.borrow_parsed());
+    examine_expressions(contents, page, block.contents.borrow_parsed());
 
     for child in &block.children {
         examine_tags(contents, page, *child);
@@ -193,11 +195,7 @@ pub fn make_pages_from_script(
 
         image_paths
             .into_par_iter()
-            .try_for_each(|(profile_override, path)| {
-                // TODO this needs to be evaluated from the page's actual directory, not just against
-                // the base path.
-                images.add(PathBuf::from(path.url), profile_override)
-            })?;
+            .try_for_each(|(profile_override, path)| images.add(path.path, profile_override))?;
 
         images.finish()?
     } else {
@@ -306,95 +304,104 @@ pub fn make_pages_from_script(
 
     let results = pages
         .into_par_iter()
-        .map(|ProcessedPage { config, slug, .. }| {
-            if !config.include {
-                return Ok(None);
-            }
+        .map(
+            |ProcessedPage {
+                 config,
+                 blocks,
+                 slug,
+                 ..
+             }| {
+                if !config.include {
+                    return Ok(None);
+                }
 
-            let filename = if config.path_name.is_empty() {
-                format!("{}.{}", config.url_name, global_config.extension)
-            } else {
-                config.path_name
-            };
+                let filename = if config.path_name.is_empty() {
+                    format!("{}.{}", config.url_name, global_config.extension)
+                } else {
+                    config.path_name
+                };
 
-            let output_path = create_path(
-                config.path_base.as_str(),
-                default_output_dir.as_ref(),
-                &filename,
-            );
+                let output_path = create_path(
+                    config.path_base.as_str(),
+                    default_output_dir.as_ref(),
+                    &filename,
+                );
 
-            let (template_key, picture_template_key) = page_templates
-                .get(&config.root_block)
-                .ok_or_else(|| eyre!("Failed to find template for page"))?;
+                let (template_key, picture_template_key) =
+                    page_templates
+                        .get(&config.root_block)
+                        .ok_or_else(|| eyre!("Failed to find template for page"))?;
 
-            let page = Page {
-                id: config.root_block,
-                title: config.title,
-                slug: slug.as_str(),
-                latest_found_edit_time: std::cell::Cell::new(0),
-                graph: &graph,
-                config: global_config,
-                pages_by_title: &pages_by_title,
-                pages_by_id: &pages_by_id,
-                omitted_attributes: &omitted_attributes,
-                highlighter,
-                handlebars: &handlebars,
-                picture_template_key,
-                image_info: &image_info,
-            };
+                let page = Page {
+                    id: config.root_block,
+                    title: config.title,
+                    slug: slug.as_str(),
+                    path: blocks.path,
+                    latest_found_edit_time: std::cell::Cell::new(0),
+                    graph: &graph,
+                    config: global_config,
+                    pages_by_title: &pages_by_title,
+                    pages_by_id: &pages_by_id,
+                    omitted_attributes: &omitted_attributes,
+                    highlighter,
+                    handlebars: &handlebars,
+                    picture_template_key,
+                    image_info: &image_info,
+                };
 
-            let block = graph.blocks.get(&page.id).unwrap();
+                let block = graph.blocks.get(&page.id).unwrap();
 
-            let rendered = page.render()?;
+                let rendered = page.render()?;
 
-            if rendered.is_empty() {
-                return Ok(None);
-            }
+                if rendered.is_empty() {
+                    return Ok(None);
+                }
 
-            let mut tags = config.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-            tags.sort_by_key(|k| k.to_lowercase());
-            tags.dedup();
+                let mut tags = config.tags.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+                tags.sort_by_key(|k| k.to_lowercase());
+                tags.dedup();
 
-            // println!("{:?} {:?}", title, tags);
+                // println!("{:?} {:?}", title, tags);
 
-            let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
+                let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
 
-            let template_data = TemplateArgs {
-                title: page.title.as_str(),
-                body: &rendered,
-                tags,
-                created_time: block.create_time,
-                edited_time,
-            };
+                let template_data = TemplateArgs {
+                    title: page.title.as_str(),
+                    body: &rendered,
+                    tags,
+                    created_time: block.create_time,
+                    edited_time,
+                };
 
-            let full_page = handlebars.render(template_key, &template_data)?;
+                let full_page = handlebars.render(template_key, &template_data)?;
 
-            let content_matches = match std::fs::read_to_string(&output_path) {
-                Ok(existing) => existing == full_page,
-                Err(_) => false,
-            };
+                let content_matches = match std::fs::read_to_string(&output_path) {
+                    Ok(existing) => existing == full_page,
+                    Err(_) => false,
+                };
 
-            if !content_matches {
-                let mut writer = std::fs::File::create(&output_path)
-                    .with_context(|| format!("Writing {}", output_path))?;
-                writer.write_all(full_page.as_bytes())?;
-                writer.flush()?;
+                if !content_matches {
+                    let mut writer = std::fs::File::create(&output_path)
+                        .with_context(|| format!("Writing {}", output_path))?;
+                    writer.write_all(full_page.as_bytes())?;
+                    writer.flush()?;
 
-                println!("Wrote: \"{title}\" to {slug}", title = page.title);
-            }
+                    println!("Wrote: \"{title}\" to {slug}", title = page.title);
+                }
 
-            Ok::<_, eyre::Report>(Some((
-                output_path,
-                (
-                    content_matches,
-                    ManifestItem {
-                        title: page.title.to_string(),
-                        slug,
-                        uid: block.uid.clone(),
-                    },
-                ),
-            )))
-        })
+                Ok::<_, eyre::Report>(Some((
+                    output_path,
+                    (
+                        content_matches,
+                        ManifestItem {
+                            title: page.title.to_string(),
+                            slug,
+                            uid: block.uid.clone(),
+                        },
+                    ),
+                )))
+            },
+        )
         .filter_map(|p| p.transpose())
         // Use BTreeMap since it gets us sorted keys in the output, which is good for
         // minimizing Git churn on the manifest.

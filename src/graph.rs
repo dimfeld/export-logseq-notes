@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ahash::HashMap;
 use smallvec::SmallVec;
 
@@ -85,6 +87,7 @@ pub struct Block {
 
 #[derive(Debug)]
 pub struct ParsedPage {
+    pub path: PathBuf,
     pub root_block: usize,
     pub blocks: HashMap<usize, Block>,
 }

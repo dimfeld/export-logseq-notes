@@ -1,4 +1,7 @@
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use ahash::HashMap;
 use eyre::{Result, WrapErr};
@@ -98,13 +101,24 @@ impl Images {
     }
 }
 
+pub fn image_full_path(origin_path: &Path, image_path: &str) -> Option<PathBuf> {
+    if image_path.starts_with("http") {
+        return None;
+    }
+
+    Some(
+        origin_path
+            .parent()
+            .map(|p| p.join(image_path))
+            .unwrap_or_else(|| PathBuf::from(image_path)),
+    )
+}
+
 pub const DEFAULT_PICTURE_TEMPLATE: &str = r##"
 <picture>
-    {{#each output}}
-        <source srcset="{{this.url}}" type="image/{{this.format}}" width="{{this.width}}" height="{{this.height}}" />
-    {{/each}}
-    {{#with fallback as | f |}}
-        <img src="{{f.src}}" alt="{{alt}}" width="{{f.width}}" height="{{f.height}}" />
-    {{/with}}
+{{#each output}}
+  <source srcset="{{this.url}}" type="image/{{this.format}}" width="{{this.width}}" height="{{this.height}}" />
+{{/each}}
+  <img src="{{fallback.url}}" alt="{{alt}}" width="{{fallback.width}}" height="{{fallback.height}}" />
 </picture>
 "##;
