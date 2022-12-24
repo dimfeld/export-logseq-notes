@@ -21,9 +21,13 @@ pub enum ContentStyle {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expression<'a> {
     Text(&'a str),
+    RawHtml(&'a str),
     RawHyperlink(&'a str),
     Image {
         alt: &'a str,
+        url: &'a str,
+    },
+    Video {
         url: &'a str,
     },
     BraceDirective(&'a str),
@@ -234,6 +238,10 @@ fn brace_directive_contents(content_style: ContentStyle, input: &str) -> IResult
         ),
         map(fixed_link_or_word("table"), |_| Expression::Table),
         map(
+            separated_pair(fixed_link_or_word("video"), multispace1, raw_url),
+            |(_, url)| Expression::Video { url },
+        ),
+        map(
             separated_pair(
                 fixed_link_or_word("embed"),
                 // Roam has a colon after "embed", Logseq does not.
@@ -284,6 +292,10 @@ fn image(input: &str) -> IResult<&str, (&str, &str)> {
     preceded(char('!'), markdown_link)(input)
 }
 
+fn raw_html(input: &str) -> IResult<&str, &str> {
+    fenced("@@html: ", "@@")(input)
+}
+
 /// Parses urls not inside a directive
 fn raw_url(input: &str) -> IResult<&str, &str> {
     let mut locator = UrlLocator::new();
@@ -317,6 +329,7 @@ fn directive(content_style: ContentStyle, input: &str) -> IResult<&str, Expressi
         map(link, Expression::Link),
         map(block_ref, Expression::BlockRef),
         map(image, |(alt, url)| Expression::Image { alt, url }),
+        map(raw_html, Expression::RawHtml),
         map(markdown_link, |(title, url)| {
             if let Ok((_, url)) = (all_consuming(link))(url) {
                 Expression::MarkdownInternalLink {

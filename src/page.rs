@@ -6,6 +6,7 @@ use std::{
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
 use serde::Serialize;
+use urlencoding::encode;
 
 use crate::{
     config::Config,
@@ -196,6 +197,14 @@ impl<'a> Page<'a> {
             )
             .into()),
         }
+    }
+
+    fn render_video(&self, url: &str) -> StringBuilder {
+        // Not great with fixed size
+        StringBuilder::from(format!(
+            r##"<video controls src="{u}" width="800" height="450"></video>"##,
+            u = encode(url)
+        ))
     }
 
     fn render_block_embed(&'a self, s: &'a str) -> Result<StringBuilder<'a>> {
@@ -392,7 +401,9 @@ impl<'a> Page<'a> {
             Expression::Hashtag(s, dot) => {
                 (self.hashtag(s, *dot, omit_unexported_links), true, true)
             }
+            Expression::RawHtml(s) => (StringBuilder::String((*s).into()), true, true),
             Expression::Image { alt, url } => (self.render_image(url, alt)?, true, true),
+            Expression::Video { url } => (self.render_video(url), true, true),
             Expression::Todo { done } => {
                 let done = if *done { "checked" } else { "" };
 
