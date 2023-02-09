@@ -156,6 +156,7 @@ impl LogseqGraph {
 
         let mut raw_pages = files
             .par_iter()
+            .filter((|file| file.extension().map(|ext| ext == "md").unwrap_or(false)))
             .map(|file| {
                 read_logseq_md_file(file, metadata_db, is_journal)
                     .with_context(|| format!("{file:?}"))
