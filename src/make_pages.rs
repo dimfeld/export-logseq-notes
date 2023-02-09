@@ -28,6 +28,7 @@ struct TemplateArgs<'a> {
     title: &'a str,
     body: &'a str,
     tags: Vec<&'a str>,
+    attrs: HashMap<&'a str, String>,
     created_time: u64,
     edited_time: u64,
 }
@@ -386,10 +387,17 @@ pub fn make_pages_from_script(
 
                 let edited_time = block.edit_time.max(page.latest_found_edit_time.get());
 
+                let template_attrs = config
+                    .attrs
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.join(", ")))
+                    .collect::<HashMap<_, _>>();
+
                 let template_data = TemplateArgs {
                     title: page.title.as_str(),
                     body: &rendered,
                     tags,
+                    attrs: template_attrs,
                     created_time: block.create_time,
                     edited_time,
                 };
