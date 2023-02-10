@@ -89,6 +89,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
     let mut header = 0;
 
     let mut all_done = false;
+    let mut in_code_block = false;
 
     loop {
         let line_read = lines.next();
@@ -102,13 +103,26 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
             match parsed {
                 None => break,
                 Some(mut parsed) => {
+                    // YAML inside code blocks can throw off the parser. This hacks around
+                    // that.
+                    let has_triple = parsed.contents.contains("```");
+                    let enter_code_block = has_triple && !in_code_block;
+                    let leave_code_block = has_triple && in_code_block;
+                    if leave_code_block {
+                        in_code_block = false;
+                    }
+
                     if line_contents.is_empty() {
                         assert!(parsed.new_block, "{line} {parsed:?}");
                         indent = parsed.indent;
-                    } else if parsed.new_block {
+                    } else if parsed.new_block && !in_code_block {
                         // Done with this block.
                         lines.put_back(Ok(line));
                         break;
+                    }
+
+                    if enter_code_block {
+                        in_code_block = true;
                     }
 
                     if parsed.header > 0 {
@@ -230,7 +244,7 @@ mod test {
         fn empty_line() {
             let input = "";
             let result = evaluate_line(input).unwrap();
-            assert!(result.is_none(), "Should be none: {:?}", result);
+            assert!(result.is_none(), "Should be none: {result:?}");
         }
 
         #[test]
