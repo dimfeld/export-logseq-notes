@@ -1,10 +1,13 @@
 use std::{
+    borrow::Cow,
     cell::Cell,
     path::{Path, PathBuf},
 };
 
 use ahash::{HashMap, HashSet};
 use eyre::{eyre, Result, WrapErr};
+use once_cell::sync::Lazy;
+use regex::{Captures, Regex};
 use serde::Serialize;
 use urlencoding::encode;
 
@@ -76,6 +79,36 @@ fn render_opening_tag(tag: &str, class: &str) -> String {
 }
 
 impl<'a> Page<'a> {
+    /// Render text as HTML, escaping HTML reserved characters but not performing any other
+    /// transformations. This is useful when rendering code into code blocks.
+    fn render_plain_text<'tx>(&self, text: &'tx str) -> Cow<'tx, str> {
+        html::escape(text)
+    }
+
+    /// Render text as HTML, performing any enabled transformations such as converting
+    /// -- into an emdash.
+    fn render_text<'tx>(&self, text: &'tx str) -> Cow<'tx, str> {
+        static TWODASH: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(^|[^-])--([^-]|$)"#).unwrap());
+
+        let escaped = self.render_plain_text(text);
+
+        let with_emdash = if self.config.convert_emdash && escaped.contains("--") {
+            let rep = TWODASH
+                .replace_all(&escaped, |caps: &Captures| {
+                    format!("{}&emdash;{}", &caps[1], &caps[2])
+                })
+                .into_owned();
+            // Not ideal but this is an easy way to break the borrow checker's reliance on
+            // `escaped`. We already checked that `escaped` contains `--` so the false positive
+            // rate should be low.
+            Cow::from(rep)
+        } else {
+            escaped
+        };
+
+        with_emdash
+    }
+
     fn link_if_allowed_with_label(
         &self,
         page: &'a str,
@@ -92,7 +125,7 @@ impl<'a> Page<'a> {
                     let output_label = label.unwrap_or(output_title.as_str());
                     StringBuilder::from(format!(
                         r##"<a href="{slug}">{title}</a>"##,
-                        title = html::escape(output_label),
+                        title = self.render_text(output_label),
                         slug = html::escape(slug)
                     ))
                 },
@@ -101,7 +134,7 @@ impl<'a> Page<'a> {
                 if omit_unexported_links {
                     StringBuilder::Empty
                 } else {
-                    StringBuilder::from(html::escape(label.unwrap_or(page)))
+                    StringBuilder::from(self.render_text(label.unwrap_or(page)))
                 }
             })
     }
@@ -158,7 +191,7 @@ impl<'a> Page<'a> {
         let anchor = self.link_if_allowed(s, omit_unexported_links);
         if dot && !anchor.is_empty() {
             StringBuilder::Vec(vec![
-                StringBuilder::from(format!("<span class=\"{}\">", s)),
+                StringBuilder::from(format!("<span class=\"{s}\">")),
                 anchor,
                 StringBuilder::from("</span>"),
             ])
@@ -290,7 +323,7 @@ impl<'a> Page<'a> {
                     (StringBuilder::Empty, true)
                 } else {
                     (
-                        StringBuilder::from(format!("<pre>{}</pre>", html::escape(s))),
+                        StringBuilder::from(format!("<pre>{}</pre>", self.render_plain_text(s))),
                         true,
                     )
                 }
@@ -376,7 +409,7 @@ impl<'a> Page<'a> {
                     "<span>".into(),
                     // Attr name
                     render_opening_tag("span", self.config.class_attr_name.as_str()).into(),
-                    html::escape(name).into(),
+                    self.render_plain_text(name).into(),
                     ":</span> ".into(),
                     // Attr value
                     render_opening_tag("span", self.config.class_attr_value.as_str()).into(),
@@ -422,7 +455,7 @@ impl<'a> Page<'a> {
             Expression::MarkdownExternalLink { title, url } => (
                 format!(
                     r##"<a href="{url}">{title}</a>"##,
-                    title = html::escape(title),
+                    title = self.render_text(title),
                     url = html::escape(url),
                 )
                 .into(),
@@ -435,7 +468,7 @@ impl<'a> Page<'a> {
                 true,
             ),
             Expression::SingleBacktick(s) => (
-                format!("<code>{}</code>", html::escape(s)).into(),
+                format!("<code>{}</code>", self.render_plain_text(s)).into(),
                 true,
                 true,
             ),
@@ -467,7 +500,7 @@ impl<'a> Page<'a> {
                 self.config.class_blockquote.as_str(),
                 e,
             )?,
-            Expression::Text(s) => (html::escape(s).into(), true, true),
+            Expression::Text(s) => (self.render_text(s).into(), true, true),
             Expression::BlockRef(s) => self.render_block_ref(block, s)?,
             Expression::BraceDirective(s) => self.render_brace_directive(block, s),
             Expression::Table => (self.render_table(block), true, false),
@@ -550,15 +583,9 @@ impl<'a> Page<'a> {
                 return result;
             }
 
-            let opening_tag = if class.is_empty() {
-                format!("<{element}>")
-            } else {
-                format!(r##"<{element} class="{class}">"##)
-            };
-
             (
                 StringBuilder::Vec(vec![
-                    StringBuilder::from(opening_tag),
+                    StringBuilder::from(render_opening_tag(element, class)),
                     result.0,
                     StringBuilder::from(format!("</{element}>")),
                 ]),

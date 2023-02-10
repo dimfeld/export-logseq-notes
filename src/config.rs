@@ -95,6 +95,9 @@ struct FileConfig {
     pub class_heading3: Option<String>,
     pub class_heading4: Option<String>,
 
+    /// Convert -- to &emdash; when generating HTML.
+    pub convert_emdash: Option<bool>,
+
     /// Configuration for a Pic Store instance, to upload local images to the web.
     pub pic_store: Option<PicStoreConfig>,
 }
@@ -154,6 +157,7 @@ pub struct Config {
     pub class_heading2: String,
     pub class_heading3: String,
     pub class_heading4: String,
+    pub convert_emdash: bool,
 
     pub pic_store: Option<PicStoreConfig>,
 }
@@ -244,6 +248,7 @@ impl Config {
             class_heading2: file_cfg.class_heading2.unwrap_or_default(),
             class_heading3: file_cfg.class_heading3.unwrap_or_default(),
             class_heading4: file_cfg.class_heading4.unwrap_or_default(),
+            convert_emdash: file_cfg.convert_emdash.unwrap_or_default(),
             pic_store: file_cfg.pic_store,
         };
 
@@ -252,7 +257,7 @@ impl Config {
             let prefix = if url.starts_with('/') { "" } else { "/" };
             let suffix = if url.ends_with('/') { "" } else { "/" };
 
-            format!("{}{}{}", prefix, url, suffix)
+            format!("{prefix}{url}{suffix}")
         });
 
         Ok(cfg)

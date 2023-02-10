@@ -1,6 +1,6 @@
 [package]
 name = "export-logseq-notes"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Daniel Imfeld <daniel@imfeld.dev>"]
 edition = "2021"
 
@@ -19,6 +19,7 @@ handlebars = "4.3.0"
 itertools = "0.10.0"
 katex = "0.4.4"
 nom = "7.1.0"
+once_cell = "1.17.0"
 ouroboros = "0.15.5"
 r2d2 = "0.8.10"
 r2d2_sqlite = { version = "0.21.0", features = ["bundled"] }
