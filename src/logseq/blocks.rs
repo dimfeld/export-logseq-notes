@@ -95,11 +95,11 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
         let line_read = lines.next();
         if let Some(line) = line_read {
             let line = line?;
-            if line.is_empty() {
+            if line.is_empty() && !in_code_block {
                 continue;
             }
 
-            let parsed = evaluate_line(line.as_str())?;
+            let parsed = evaluate_line(line.as_str(), in_code_block)?;
             match parsed {
                 None => break,
                 Some(mut parsed) => {
@@ -191,7 +191,26 @@ fn space_between_tags(input: &str) -> IResult<&str, ()> {
     map(take_while1(|c| c != '#'), |_| ())(input)
 }
 
-fn evaluate_line(line: &str) -> Result<Option<Line<'_>>> {
+fn evaluate_line(line: &str, in_code_block: bool) -> Result<Option<Line<'_>>> {
+    if in_code_block {
+        let line_without_tabs = line.trim_start_matches('\t');
+        let output = if line_without_tabs.starts_with("  ") {
+            // Trim off the leading whitespace of the code block too.
+            &line_without_tabs[2..]
+        } else {
+            line
+        };
+
+        return Ok(Some(Line {
+            contents: output,
+            attr_name: String::new(),
+            attr_values: SmallVec::new(),
+            new_block: false,
+            indent: 0,
+            header: 0,
+        }));
+    }
+
     if line.is_empty() {
         return Ok(None);
     }
@@ -243,7 +262,7 @@ mod test {
         #[test]
         fn empty_line() {
             let input = "";
-            let result = evaluate_line(input).unwrap();
+            let result = evaluate_line(input, false).unwrap();
             assert!(result.is_none(), "Should be none: {result:?}");
         }
 
@@ -251,7 +270,7 @@ mod test {
         fn no_indent_same_block() {
             let input = "  abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 0,
@@ -267,7 +286,7 @@ mod test {
         fn extra_spaces_same_block() {
             let input = "    abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "  abc",
                     indent: 0,
@@ -283,7 +302,7 @@ mod test {
         fn empty_block() {
             let input = "-";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "",
                     indent: 0,
@@ -299,7 +318,7 @@ mod test {
         fn indent_same_block() {
             let input = "\t\t  abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
@@ -315,7 +334,7 @@ mod test {
         fn no_indent_new_block() {
             let input = "- abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 0,
@@ -331,7 +350,7 @@ mod test {
         fn indent_new_block() {
             let input = "\t\t- abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
@@ -347,7 +366,7 @@ mod test {
         fn extra_space_before_dash() {
             let input = "\t\t - abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
@@ -363,7 +382,7 @@ mod test {
         fn header1() {
             let input = "\t\t- # abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
@@ -379,7 +398,7 @@ mod test {
         fn header3() {
             let input = "\t\t- ### abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc",
                     indent: 2,
@@ -395,7 +414,7 @@ mod test {
         fn hashes_on_second_line() {
             let input = "\t\t  ### abc";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "### abc",
                     indent: 2,
@@ -411,7 +430,7 @@ mod test {
         fn new_block_attr_line() {
             let input = "\t\t- abc:: def";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc:: def",
                     indent: 2,
@@ -427,7 +446,7 @@ mod test {
         fn same_block_attr_line() {
             let input = "\t\t  abc:: def";
             assert_eq!(
-                evaluate_line(input).unwrap().unwrap(),
+                evaluate_line(input, false).unwrap().unwrap(),
                 Line {
                     contents: "abc:: def",
                     indent: 2,
