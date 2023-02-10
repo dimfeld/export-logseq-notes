@@ -286,7 +286,7 @@ impl<'a> Page<'a> {
         let (value, render_children) = match s {
             "table" => (self.render_table(block), false),
             _ => {
-                if s.starts_with("query:") {
+                if s.starts_with("query:") || s.starts_with("renderer ") {
                     (StringBuilder::Empty, true)
                 } else {
                     (
