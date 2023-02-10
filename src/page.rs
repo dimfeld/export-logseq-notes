@@ -538,26 +538,32 @@ impl<'a> Page<'a> {
 
     fn render_line(&'a self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
         self.render_line_without_header(block).map(|result| {
-            let class = match block.heading {
-                1 => self.config.class_heading1.as_str(),
-                2 => self.config.class_heading2.as_str(),
-                3 => self.config.class_heading3.as_str(),
-                4 => self.config.class_heading4.as_str(),
-                _ => "",
+            let (element, class) = match block.heading {
+                1 => ("h1", self.config.class_heading1.as_str()),
+                2 => ("h2", self.config.class_heading2.as_str()),
+                3 => ("h3", self.config.class_heading3.as_str()),
+                4 => ("h4", self.config.class_heading4.as_str()),
+                _ => ("", ""),
             };
 
-            if !class.is_empty() && !result.0.is_blank() {
-                (
-                    StringBuilder::Vec(vec![
-                        StringBuilder::from(format!(r##"<span class="{class}">"##)),
-                        result.0,
-                        StringBuilder::from("</span>"),
-                    ]),
-                    result.1,
-                )
-            } else {
-                result
+            if result.0.is_blank() || element.is_empty() {
+                return result;
             }
+
+            let opening_tag = if class.is_empty() {
+                format!("<{element}>")
+            } else {
+                format!(r##"<{element} class="{class}">"##)
+            };
+
+            (
+                StringBuilder::Vec(vec![
+                    StringBuilder::from(opening_tag),
+                    result.0,
+                    StringBuilder::from(format!("</{element}>")),
+                ]),
+                result.1,
+            )
         })
     }
 
@@ -567,7 +573,7 @@ impl<'a> Page<'a> {
         inherited_view_type: ViewType,
         depth: usize,
     ) -> Result<StringBuilder<'a>> {
-        let (rendered, render_li, render_child_container, render_children) =
+        let (rendered, include_type_renders_li, render_child_container, render_children) =
             match block.include_type {
                 BlockInclude::Exclude => return Ok(StringBuilder::Empty),
                 BlockInclude::JustBlock => {
@@ -585,6 +591,14 @@ impl<'a> Page<'a> {
         let render_children = render_children && !block.children.is_empty();
         let view_type = block.view_type.resolve_with_parent(inherited_view_type);
 
+        let child_container = match (render_child_container, view_type) {
+            (false, _) => None,
+            (true, ViewType::Document) => None,
+            (true, ViewType::Bullet) => Some(("<ul class=\"list-bullet\">\n", "</ul>")),
+            (true, ViewType::Numbered) => Some(("<ol class=\"list-bullet\">\n", "</ol>")),
+            (true, ViewType::Inherit) => panic!("ViewType should never resolve to Inherit"),
+        };
+
         if block.edit_time > self.latest_found_edit_time.get() {
             self.latest_found_edit_time.set(block.edit_time);
         }
@@ -595,10 +609,15 @@ impl<'a> Page<'a> {
             return Ok(StringBuilder::Empty);
         }
 
-        let render_li = render_li && depth > 0;
+        let parent_is_list = depth > 0 && inherited_view_type != ViewType::Document;
+        // Render the li if we're in an include type that renders this block
+        // if we're rendering this inside a list
+        let render_li = include_type_renders_li && parent_is_list;
 
         let mut result = StringBuilder::with_capacity(9);
         result.push(write_depth(depth));
+
+        let render_p = view_type == ViewType::Document && !render_li && !rendered.is_blank();
 
         if render_li {
             if block.uid.is_empty() {
@@ -606,9 +625,21 @@ impl<'a> Page<'a> {
             } else {
                 result.push(format!(r##"<li id="{id}">"##, id = block.uid));
             }
+        } else if render_p {
+            if block.uid.is_empty() {
+                result.push("<p>");
+            } else {
+                result.push(format!(r##"<p id="{id}">"##, id = block.uid));
+            }
         }
-
         result.push(rendered);
+
+        // For a document view type, we don't want to render the children inside this paragraph,
+        // since we are flattening the structure. So close it here and let the children render on
+        // their own.
+        if render_p {
+            result.push("</p>");
+        }
 
         let mut child_had_content = false;
         if render_children {
@@ -620,15 +651,9 @@ impl<'a> Page<'a> {
 
             result.push("\n");
 
-            if render_child_container {
+            if let Some((child_container_start, _)) = child_container.as_ref() {
                 result.push(write_depth(child_container_depth));
-                let element = match view_type {
-                    ViewType::Document => "<ul class=\"list-document\">\n",
-                    ViewType::Bullet => "<ul class=\"list-bullet\">\n",
-                    ViewType::Numbered => "<ol class=\"list-numbered\">\n",
-                    ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
-                };
-                result.push(element);
+                result.push(*child_container_start);
             }
 
             let mut children = block
@@ -651,16 +676,9 @@ impl<'a> Page<'a> {
                 result.push(child_content);
             }
 
-            if render_child_container {
+            if let Some((_, child_container_end)) = child_container.as_ref() {
                 result.push(write_depth(child_container_depth));
-
-                let element = match view_type {
-                    ViewType::Document => "</ul>\n",
-                    ViewType::Bullet => "</ul>\n",
-                    ViewType::Numbered => "</ol>\n",
-                    ViewType::Inherit => panic!("ViewType should never resolve to Inherit"),
-                };
-                result.push(element);
+                result.push(*child_container_end);
             }
         }
 
