@@ -95,7 +95,7 @@ impl<'a> Page<'a> {
         let with_emdash = if self.config.convert_emdash && escaped.contains("--") {
             let rep = TWODASH
                 .replace_all(&escaped, |caps: &Captures| {
-                    format!("{}&emdash;{}", &caps[1], &caps[2])
+                    format!("{}&mdash;{}", &caps[1], &caps[2])
                 })
                 .into_owned();
             // Not ideal but this is an easy way to break the borrow checker's reliance on
