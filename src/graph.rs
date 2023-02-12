@@ -62,7 +62,11 @@ pub enum BlockInclude {
 pub struct Block {
     pub id: usize,
     pub containing_page: usize,
+    /// The title of the page, after accounting for the `title` attribute.
     pub page_title: Option<String>,
+    /// If the title was changed, this is the original title that would be used in the source.
+    /// This will be None if it's the same as `page_title`.
+    pub original_title: Option<String>,
     pub uid: String,
 
     pub parent: Option<usize>,

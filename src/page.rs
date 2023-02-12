@@ -57,6 +57,7 @@ pub struct Page<'a> {
     pub path: PathBuf,
     pub config: &'a Config,
     pub pages_by_title: &'a HashMap<String, IdSlugUid>,
+    pub pages_by_filename_title: &'a HashMap<String, String>,
     pub pages_by_id: &'a HashMap<usize, TitleSlugUid>,
     pub omitted_attributes: &'a HashSet<&'a str>,
     pub highlighter: &'a syntax_highlight::Highlighter,
@@ -109,14 +110,25 @@ impl<'a> Page<'a> {
         with_emdash
     }
 
+    fn lookup_page_by_title(&self, title: &str) -> Option<&IdSlugUid> {
+        if let Some(page) = self.pages_by_title.get(title) {
+            return Some(page);
+        }
+
+        if let Some(lookup_title) = self.pages_by_filename_title.get(title) {
+            self.pages_by_title.get(lookup_title)
+        } else {
+            None
+        }
+    }
+
     fn link_if_allowed_with_label(
         &self,
         page: &'a str,
         label: Option<&'a str>,
         omit_unexported_links: bool,
     ) -> StringBuilder<'a> {
-        self.pages_by_title
-            .get(page)
+        self.lookup_page_by_title(page)
             .filter(|p| p.include)
             .map(
                 |IdSlugUid {
@@ -515,7 +527,7 @@ impl<'a> Page<'a> {
             }
             Expression::BlockEmbed(s) => (self.render_block_embed(s)?, true, true),
             Expression::PageEmbed(s) => {
-                let page = self.pages_by_title.get(*s).filter(|p| p.allow_embed);
+                let page = self.lookup_page_by_title(*s).filter(|p| p.allow_embed);
 
                 let result = page
                     .map(|IdSlugUid { id: block_id, .. }| {

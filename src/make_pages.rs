@@ -258,9 +258,9 @@ pub fn make_pages_from_script(
                  slug,
                  ..
              }| {
-                // Get the original title, not whatever the script might have changed it to, so that
+                // Get the title from the page, not whatever the script might have changed it to, so that
                 // links go to the correct place.
-                let orig_title = blocks
+                let title = blocks
                     .blocks
                     .get(&config.root_block)
                     .unwrap()
@@ -270,7 +270,7 @@ pub fn make_pages_from_script(
                     .to_string();
 
                 (
-                    orig_title,
+                    title,
                     IdSlugUid {
                         id: config.root_block,
                         output_title: config.title.clone(),
@@ -287,6 +287,18 @@ pub fn make_pages_from_script(
                 )
             },
         )
+        .collect::<HashMap<_, _>>();
+
+    let pages_by_filename_title = pages
+        .iter()
+        .filter_map(|ProcessedPage { config, blocks, .. }| {
+            let page_block = blocks.blocks.get(&config.root_block).unwrap();
+
+            page_block
+                .original_title
+                .clone()
+                .zip(page_block.page_title.clone())
+        })
         .collect::<HashMap<_, _>>();
 
     let pages_by_id = pages_by_title
@@ -363,6 +375,7 @@ pub fn make_pages_from_script(
                     graph: &graph,
                     config: global_config,
                     pages_by_title: &pages_by_title,
+                    pages_by_filename_title: &pages_by_filename_title,
                     pages_by_id: &pages_by_id,
                     omitted_attributes: &omitted_attributes,
                     highlighter,

@@ -366,6 +366,11 @@ impl LogseqGraph {
             .attrs
             .remove("title")
             .map(|mut values| values.remove(0));
+        let original_title = page
+            .attrs
+            .remove("original_title")
+            .map(|mut values| values.remove(0));
+
         let uid = page
             .attrs
             .remove("id")
@@ -388,6 +393,7 @@ impl LogseqGraph {
             include_type: BlockInclude::IfChildrenPresent,
             containing_page: page.base_id,
             page_title: title,
+            original_title,
             is_journal,
             contents: BlockContent::new_empty(ContentStyle::Logseq),
             heading: 0,
@@ -434,6 +440,7 @@ impl LogseqGraph {
                 heading: input.header_level as usize,
                 is_journal,
                 page_title: None,
+                original_title: None,
                 containing_page: page.base_id,
                 extra_classes: Vec::new(),
                 content_element: None,
@@ -562,22 +569,27 @@ fn parse_logseq_file(
         .map(|(attr_name, values)| (attr_name.to_lowercase(), values))
         .collect::<HashMap<_, _>>();
 
-    if !page_attrs.contains_key("title") {
-        let mut title = filename
-            .file_stem()
-            .map(|s| {
-                let s = s.to_string_lossy().into_owned();
-                urlencoding::decode(&s).map(|s| s.into_owned()).unwrap_or(s)
-            })
-            .expect("file title");
+    let has_title_attr = page_attrs.contains_key("title");
+    let orig_title_key = if has_title_attr {
+        "original_title"
+    } else {
+        "title"
+    };
 
-        if is_journal {
-            // Convert title from 2022_09_20 to 2022-09-20
-            title = title.replace('_', "-");
-        }
+    let mut title = filename
+        .file_stem()
+        .map(|s| {
+            let s = s.to_string_lossy().into_owned();
+            urlencoding::decode(&s).map(|s| s.into_owned()).unwrap_or(s)
+        })
+        .expect("file title");
 
-        page_attrs.insert(String::from("title"), smallvec![title]);
+    if is_journal {
+        // Convert title from 2022_09_20 to 2022-09-20
+        title = title.replace('_', "-");
     }
+
+    page_attrs.insert(String::from(orig_title_key), smallvec![title]);
 
     Ok((page_attrs, blocks))
 }

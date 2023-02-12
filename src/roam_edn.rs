@@ -418,6 +418,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<Parsed
             include_type: BlockInclude::default(),
             containing_page: roam_block.page,
             page_title: roam_block.title.clone(),
+            original_title: None,
             tags,
             attrs,
             create_time: roam_block.create_time,
