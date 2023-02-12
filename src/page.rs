@@ -644,28 +644,84 @@ impl<'a> Page<'a> {
         let mut result = StringBuilder::with_capacity(9);
         result.push(write_depth(depth));
 
-        let render_p = view_type == ViewType::Document && !render_li && !rendered.is_blank();
+        let render_content_element = view_type == ViewType::Document
+            && (block.heading == 0 || block.content_element.is_some())
+            && !render_li
+            && !rendered.is_blank();
+
+        let extra_classes = block.extra_classes.join(" ");
+
+        // Figure out where to put the extra classes, if any.
+        // If we have a wrapper element then prefer that.
+        // If we don't have a wrapper element but we do have an li, then put it there.
+        // If we have neither, then force a div wrapper element and place the classes there.
+        let (wrapper_extra_classes, li_extra_classes) = match (
+            extra_classes.is_empty(),
+            block.wrapper_element.is_some(),
+            render_li,
+        ) {
+            // No extra classes
+            (true, _, _) => ("", ""),
+            // Extra classes with a wrapper element
+            (false, true, _) => (extra_classes.as_str(), ""),
+            // Extra classes with neither, so we'll force a wrapper
+            (false, false, false) => (extra_classes.as_str(), ""),
+            // Extra classes with an <li>
+            (false, false, true) => ("", extra_classes.as_str()),
+        };
 
         if render_li {
             if block.uid.is_empty() {
-                result.push(r##"<li>"##);
-            } else {
+                result.push(render_opening_tag("li", li_extra_classes));
+            } else if li_extra_classes.is_empty() {
                 result.push(format!(r##"<li id="{id}">"##, id = block.uid));
-            }
-        } else if render_p {
-            if block.uid.is_empty() {
-                result.push("<p>");
             } else {
-                result.push(format!(r##"<p id="{id}">"##, id = block.uid));
+                result.push(format!(
+                    r##"<li id="{id}" class="{li_extra_classes}">"##,
+                    id = block.uid
+                ));
             }
         }
+
+        let wrapper_element = if wrapper_extra_classes.is_empty() {
+            block.wrapper_element.as_deref().unwrap_or_default()
+        } else {
+            block.wrapper_element.as_deref().unwrap_or("div")
+        };
+
+        if !extra_classes.is_empty() || block.parent.unwrap_or_default() == 9166 {
+            println!("Wrapper element {wrapper_element}, classes {wrapper_extra_classes}");
+            println!("{block:?}");
+            println!("{rendered:?}");
+            println!("render content: {render_content_element:?}\n");
+        }
+
+        if !wrapper_element.is_empty() {
+            result.push(render_opening_tag(wrapper_element, wrapper_extra_classes));
+        }
+
+        if render_content_element {
+            if block.uid.is_empty() {
+                match block.content_element.as_deref() {
+                    Some(e) => result.push(format!("<{e}>")),
+                    None => result.push("<p>"),
+                };
+            } else {
+                let element_name = block.content_element.as_deref().unwrap_or("p");
+                result.push(format!(r##"<{element_name} id="{id}">"##, id = block.uid));
+            }
+        }
+
         result.push(rendered);
 
         // For a document view type, we don't want to render the children inside this paragraph,
         // since we are flattening the structure. So close it here and let the children render on
         // their own.
-        if render_p {
-            result.push("</p>");
+        if render_content_element {
+            match block.content_element.as_deref() {
+                Some(e) => result.push(format!("</{e}>")),
+                None => result.push("</p>"),
+            };
         }
 
         let mut child_had_content = false;
@@ -711,6 +767,10 @@ impl<'a> Page<'a> {
 
         if block.include_type == BlockInclude::IfChildrenPresent && !child_had_content {
             return Ok(StringBuilder::Empty);
+        }
+
+        if !wrapper_element.is_empty() {
+            result.push(format!("</{wrapper_element}>"));
         }
 
         if render_li {

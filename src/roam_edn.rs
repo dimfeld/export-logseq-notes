@@ -423,6 +423,9 @@ pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<Parsed
             create_time: roam_block.create_time,
             edit_time: roam_block.edit_time,
             is_journal: roam_block.log_id > 0,
+            extra_classes: Vec::new(),
+            content_element: None,
+            wrapper_element: None,
 
             order: roam_block.order,
             parent: roam_block.parents.first().copied(),

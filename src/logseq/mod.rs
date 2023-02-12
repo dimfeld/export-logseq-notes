@@ -93,7 +93,7 @@ impl LogseqGraph {
     /// it for the initial population of the metadata database.
     fn read_legacy_page_metadata(&mut self) -> Result<()> {
         let metadata_path = self.root.join("logseq").join("pages-metadata.edn");
-        let source = match std::fs::read_to_string(&metadata_path) {
+        let source = match std::fs::read_to_string(metadata_path) {
             Ok(data) => data,
             Err(_) => {
                 // pages-metadata.edn no longer exists with newer versions of Logseq, so that's
@@ -156,7 +156,7 @@ impl LogseqGraph {
 
         let mut raw_pages = files
             .par_iter()
-            .filter((|file| file.extension().map(|ext| ext == "md").unwrap_or(false)))
+            .filter(|file| file.extension().map(|ext| ext == "md").unwrap_or(false))
             .map(|file| {
                 read_logseq_md_file(file, metadata_db, is_journal)
                     .with_context(|| format!("{file:?}"))
@@ -312,7 +312,7 @@ impl LogseqGraph {
 
                     // The hash didn't change, so we continue to use the timestamps from the
                     // database.
-                    (db_update, created_at as u64, edited_at as u64)
+                    (db_update, created_at, edited_at)
                 } else {
                     // The hash changed, so we use the edited timestamp from the file. The created
                     // timestamp stays the same as what's in the database.
@@ -396,6 +396,10 @@ impl LogseqGraph {
             edit_time,
             children: SmallVec::new(),
 
+            extra_classes: Vec::new(),
+            content_element: None,
+            wrapper_element: None,
+
             tags,
             attrs: page.attrs,
             parent: None,
@@ -421,7 +425,7 @@ impl LogseqGraph {
                 order: 0,
                 parent: Some(parent_id),
                 children: SmallVec::new(),
-                attrs: HashMap::default(), // this_input.attrs,
+                attrs: input.attrs,
                 tags: input.tags,
                 create_time: 0,
                 edit_time: 0,
@@ -431,6 +435,9 @@ impl LogseqGraph {
                 is_journal,
                 page_title: None,
                 containing_page: page.base_id,
+                extra_classes: Vec::new(),
+                content_element: None,
+                wrapper_element: None,
             };
 
             blocks.insert(block.id, block);

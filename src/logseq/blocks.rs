@@ -1,5 +1,6 @@
 use std::io::BufRead;
 
+use ahash::HashMap;
 use eyre::{eyre, Result};
 use nom::{
     branch::alt,
@@ -37,6 +38,7 @@ pub struct LogseqRawBlock {
     pub view_type: ViewType,
     pub indent: u32,
     pub tags: AttrList,
+    pub attrs: HashMap<String, AttrList>,
 }
 
 pub fn parse_raw_blocks(
@@ -87,6 +89,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
     let mut id = String::new();
     let mut view_type = ViewType::Inherit;
     let mut header = 0;
+    let mut attrs = HashMap::default();
 
     let mut all_done = false;
     let mut in_code_block = false;
@@ -139,6 +142,9 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
                             .map(ViewType::from)
                             .unwrap_or_default();
                     } else {
+                        if !parsed.attr_name.is_empty() {
+                            attrs.insert(parsed.attr_name, parsed.attr_values);
+                        }
                         line_contents.push(parsed.contents.to_string());
                     }
                 }
@@ -176,6 +182,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
         indent,
         contents: parsed,
         tags,
+        attrs,
     };
 
     Ok(RawBlockOutput::Block(block_contents))

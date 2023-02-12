@@ -110,6 +110,11 @@ pub struct BlockConfig {
     pub view_type: ViewType,
     pub include_type: BlockInclude,
     pub tags: AttrList,
+    pub attrs: HashMap<String, AttrList>,
+
+    pub content_element: Option<String>,
+    pub wrapper_element: Option<String>,
+    pub extra_classes: Vec<String>,
 
     edited: bool,
 }
@@ -123,6 +128,10 @@ impl BlockConfig {
             view_type: block.view_type,
             include_type: block.include_type,
             tags: block.tags.clone(),
+            attrs: block.attrs.clone(),
+            content_element: block.content_element.clone(),
+            wrapper_element: block.wrapper_element.clone(),
+            extra_classes: block.extra_classes.clone(),
             edited: false,
         }
     }
@@ -133,7 +142,11 @@ impl BlockConfig {
             block.heading = self.heading;
             block.view_type = self.view_type;
             block.include_type = self.include_type;
-            block.tags = self.tags
+            block.tags = self.tags;
+            block.attrs = self.attrs;
+            block.content_element = self.content_element;
+            block.wrapper_element = self.wrapper_element;
+            block.extra_classes = self.extra_classes;
         }
 
         Ok(())
@@ -212,6 +225,81 @@ pub mod rhai_block {
     pub fn set_tags(block: &mut BlockConfig, tags: Vec<String>) {
         block.tags = tags.into();
         block.edited = true;
+    }
+
+    #[rhai_fn(get = "content_element", pure)]
+    pub fn get_content_element(block: &mut BlockConfig) -> Option<String> {
+        block.content_element.clone()
+    }
+
+    #[rhai_fn(set = "content_element")]
+    pub fn set_content_element(block: &mut BlockConfig, element: String) {
+        if element.is_empty() {
+            block.content_element = None;
+        } else {
+            block.content_element = Some(element);
+        }
+        block.edited = true;
+    }
+
+    #[rhai_fn(get = "wrapper_element", pure)]
+    pub fn get_wrapper_element(block: &mut BlockConfig) -> Option<String> {
+        block.wrapper_element.clone()
+    }
+
+    #[rhai_fn(set = "wrapper_element")]
+    pub fn set_wrapper_element(block: &mut BlockConfig, element: String) {
+        if element.is_empty() {
+            block.wrapper_element = None;
+        } else {
+            block.wrapper_element = Some(element);
+        }
+        block.edited = true;
+    }
+
+    #[rhai_fn(get = "classlist", pure)]
+    pub fn get_class(block: &mut BlockConfig) -> Vec<Dynamic> {
+        block
+            .extra_classes
+            .iter()
+            .map(|s| Dynamic::from(s.to_string()))
+            .collect()
+    }
+
+    #[rhai_fn(set = "classlist")]
+    pub fn set_class(block: &mut BlockConfig, class: Vec<Dynamic>) {
+        block.extra_classes = class
+            .into_iter()
+            .filter_map(|s| s.into_string().ok())
+            .collect::<Vec<String>>();
+        block.edited = true;
+    }
+
+    #[rhai_fn(global)]
+    pub fn get_attr_first(block: &mut Block, attr: String) -> String {
+        block
+            .attrs
+            .get(&attr)
+            .and_then(|v| v.get(0))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    #[rhai_fn(global)]
+    pub fn get_attr(block: &mut Block, attr: String) -> Vec<Dynamic> {
+        block
+            .attrs
+            .get(&attr)
+            .map(|l| l.iter().map(|s| Dynamic::from(s.to_string())).collect())
+            .unwrap_or_else(Vec::new)
+    }
+
+    #[rhai_fn(global)]
+    pub fn remove_attr(block: &mut Block, name: String) {
+        let removed = block.attrs.remove(&name).is_some();
+        if removed {
+            block.edited = true;
+        }
     }
 }
 
@@ -431,9 +519,13 @@ fn walk_block(
     };
 
     let d = Dynamic::from(block_config).into_shared();
-    callback.call_within_context(context, (d.clone(), Dynamic::from(depth)))?;
+    let output: Dynamic =
+        callback.call_within_context(context, (d.clone(), Dynamic::from(depth)))?;
 
-    let block_config = d.cast::<BlockConfig>();
+    let block_config = match output.try_cast::<BlockConfig>() {
+        Some(b) => b,
+        None => d.cast::<BlockConfig>(),
+    };
 
     let mut p = page.lock().unwrap();
     let block = p.blocks.get_mut(&block_id).unwrap();
