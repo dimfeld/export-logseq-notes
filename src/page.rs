@@ -692,13 +692,6 @@ impl<'a> Page<'a> {
             block.wrapper_element.as_deref().unwrap_or("div")
         };
 
-        if !extra_classes.is_empty() || block.parent.unwrap_or_default() == 9166 {
-            println!("Wrapper element {wrapper_element}, classes {wrapper_extra_classes}");
-            println!("{block:?}");
-            println!("{rendered:?}");
-            println!("render content: {render_content_element:?}\n");
-        }
-
         if !wrapper_element.is_empty() {
             result.push(render_opening_tag(wrapper_element, wrapper_extra_classes));
         }
