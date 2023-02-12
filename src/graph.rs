@@ -3,10 +3,7 @@ use std::path::PathBuf;
 use ahash::HashMap;
 use smallvec::SmallVec;
 
-use crate::{
-    content::BlockContent,
-    parse_string::{ContentStyle, Expression},
-};
+use crate::{content::BlockContent, parse_string::ContentStyle};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum ViewType {
@@ -83,6 +80,10 @@ pub struct Block {
 
     pub edit_time: u64,
     pub create_time: u64,
+
+    pub extra_classes: Vec<String>,
+    pub content_element: Option<String>,
+    pub wrapper_element: Option<String>,
 }
 
 #[derive(Debug)]

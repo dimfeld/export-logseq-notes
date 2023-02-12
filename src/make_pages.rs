@@ -410,10 +410,22 @@ pub fn make_pages_from_script(
                 };
 
                 if !content_matches {
-                    let mut writer = std::fs::File::create(&output_path)
-                        .with_context(|| format!("Writing {}", output_path))?;
-                    writer.write_all(full_page.as_bytes())?;
-                    writer.flush()?;
+                    if page.config.safe_write {
+                        let mut temp_out = tempfile::NamedTempFile::new()
+                            .with_context(|| format!("Writing {output_path}"))?;
+                        temp_out.write_all(full_page.as_bytes())?;
+                        temp_out.flush()?;
+
+                        let temp_path = temp_out.into_temp_path();
+                        temp_path
+                            .persist(&output_path)
+                            .with_context(|| format!("Writing {output_path}"))?;
+                    } else {
+                        let mut writer = std::fs::File::create(&output_path)
+                            .with_context(|| format!("Writing {output_path}"))?;
+                        writer.write_all(full_page.as_bytes())?;
+                        writer.flush()?;
+                    }
 
                     println!("Wrote: \"{title}\" to {slug}", title = page.title);
                 }

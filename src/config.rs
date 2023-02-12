@@ -36,6 +36,12 @@ struct CmdlineConfig {
         help = "The PKM product that produced the file. Defaults to Logseq"
     )]
     pub product: Option<PkmProduct>,
+
+    #[structopt(
+        long,
+        help = "Write files so that there is no time when the contents are partially written."
+    )]
+    pub safe_write: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +55,9 @@ struct FileConfig {
 
     /// Output directory. Must be specified if not given on the command line.
     pub output: Option<PathBuf>,
+
+    /// Write files so that there is no time when the contents are partially written
+    pub safe_write: Option<bool>,
 
     /// The script to run
     pub script: PathBuf,
@@ -133,6 +142,7 @@ pub struct Config {
     pub track_logseq_timestamps: bool,
     pub output: PathBuf,
     pub script: PathBuf,
+    pub safe_write: bool,
     pub product: PkmProduct,
     pub base_url: Option<String>,
     pub omit_attributes: Vec<String>,
@@ -225,6 +235,7 @@ impl Config {
             output: merge_required("output", cmdline_cfg.output, file_cfg.output)?,
             script: file_cfg.script,
             product: merge_default(cmdline_cfg.product, file_cfg.product),
+            safe_write: cmdline_cfg.safe_write || file_cfg.safe_write.unwrap_or(false),
             base_url: file_cfg.base_url,
             omit_attributes: file_cfg.omit_attributes.unwrap_or_default(),
             highlight_class_prefix: file_cfg.highlight_class_prefix,
