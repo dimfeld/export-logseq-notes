@@ -647,7 +647,10 @@ impl<'a> Page<'a> {
         let render_content_element = view_type == ViewType::Document
             && (block.heading == 0 || block.content_element.is_some())
             && !render_li
-            && !rendered.is_blank();
+            && !rendered.is_blank()
+            // Really bad hack. Need something better but it suffices
+            // for the moment.
+            && !rendered.starts_with("<pre");
 
         let extra_classes = block.extra_classes.join(" ");
 

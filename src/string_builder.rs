@@ -58,6 +58,16 @@ impl<'a> StringBuilder<'a> {
             StringBuilder::Vec(v) => v.is_empty() || v.iter().all(|s| s.is_blank()),
         }
     }
+
+    /// Return true if the StringBuilder starts with a prefix. This is a simple
+    /// implementation that only looks at the first string component of the StringBuilder.
+    pub fn starts_with(&self, prefix: &str) -> bool {
+        match self {
+            StringBuilder::Empty => false,
+            StringBuilder::String(s) => s.starts_with(prefix),
+            StringBuilder::Vec(v) => v.first().map_or(false, |s| s.starts_with(prefix)),
+        }
+    }
 }
 
 impl<'a> From<Cow<'a, str>> for StringBuilder<'a> {
