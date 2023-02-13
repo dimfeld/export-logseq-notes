@@ -309,6 +309,11 @@ pub mod rhai_page {
 
     pub type Page = PageConfig;
 
+    #[rhai_fn(global)]
+    pub fn to_slug(s: String) -> String {
+        title_to_slug(&s)
+    }
+
     #[rhai_fn(get = "is_journal", pure)]
     pub fn is_journal(page: &mut Page) -> bool {
         page.is_journal
