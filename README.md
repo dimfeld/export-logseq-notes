@@ -3,7 +3,7 @@
 This is a program to take a Logseq directory and convert it into web pages. I'm currently using this to
 populate the [notes section of my website](https://imfeld.dev/notes).
 
-Note: Most everything below is out of date. I'll be rewriting the README in the near future to accurately reflect the addition of scripting and other new capabilities.
+Note: Most everything below is out of date. I'll be rewriting the README to accurately reflect the addition of scripting and other new capabilities. For now, the easiest way to see how to use this is to look at [the configuration I use on my website](https://github.com/dimfeld/website).
 
 ## Features
 
@@ -33,7 +33,7 @@ the arguments available.
 - [X] When a page links to another exported page, the output contains a link.
 - [X] Expands block embeds
 - [X] Link block references to original block
-- [ ] Translate namespaces into nested directories
+- [X] Translate namespaces into nested directories
 - [ ] Option to show backlinks at bottom
 
 ## Acknowledgements
