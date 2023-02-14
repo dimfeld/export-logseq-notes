@@ -1,7 +1,7 @@
 # Logseq Note Exporter
 
 This is a program to take a Logseq directory and convert it into web pages. I'm currently using this to
-populate the [notes section of my website](https://imfeld.dev/notes).
+populate much of the content on [my website](https://imfeld.dev/).
 
 Note: Most everything below is out of date. I'll be rewriting the README to accurately reflect the addition of scripting and other new capabilities. For now, the easiest way to see how to use this is to look at [the configuration I use on my website](https://github.com/dimfeld/website).
 
