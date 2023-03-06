@@ -116,7 +116,9 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
                     }
 
                     if line_contents.is_empty() {
-                        assert!(parsed.new_block, "{line} {parsed:?}");
+                        // Force new_block to true, since content inserted by plugins might omit
+                        // the leading `-`.
+                        parsed.new_block = true;
                         indent = parsed.indent;
                     } else if parsed.new_block && !in_code_block {
                         // Done with this block.
