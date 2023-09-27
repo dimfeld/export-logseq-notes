@@ -36,6 +36,7 @@ pub struct LogseqRawBlock {
     pub header_level: u32,
     pub contents: BlockContent,
     pub view_type: ViewType,
+    pub collapsed: bool,
     pub indent: u32,
     pub tags: AttrList,
     pub attrs: HashMap<String, AttrList>,
@@ -89,6 +90,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
     let mut id = String::new();
     let mut view_type = ViewType::Inherit;
     let mut header = 0;
+    let mut collapsed = false;
     let mut attrs = HashMap::default();
 
     let mut all_done = false;
@@ -143,6 +145,8 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
                             .pop()
                             .map(ViewType::from)
                             .unwrap_or_default();
+                    } else if parsed.attr_name == "collapsed" {
+                        collapsed = parsed.attr_values.pop().unwrap_or_default() == "true";
                     } else {
                         if !parsed.attr_name.is_empty() {
                             attrs.insert(parsed.attr_name, parsed.attr_values);
@@ -181,6 +185,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
         // The caller will figure this out.
         parent_idx: None,
         view_type,
+        collapsed,
         indent,
         contents: parsed,
         tags,
