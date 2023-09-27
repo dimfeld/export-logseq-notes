@@ -95,6 +95,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
 
     let mut all_done = false;
     let mut in_code_block = false;
+    let mut in_logbook = false;
 
     loop {
         let line_read = lines.next();
@@ -115,6 +116,17 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
                     let leave_code_block = has_triple && in_code_block;
                     if leave_code_block {
                         in_code_block = false;
+                    }
+
+                    if parsed.contents == ":LOGBOOK:" {
+                        in_logbook = true;
+                        continue;
+                    } else if in_logbook {
+                        if parsed.contents == ":END" || parsed.new_block {
+                            in_logbook = false;
+                        } else {
+                            continue;
+                        }
                     }
 
                     if line_contents.is_empty() {
