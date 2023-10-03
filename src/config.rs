@@ -104,6 +104,30 @@ struct FileConfig {
     pub class_heading3: Option<String>,
     pub class_heading4: Option<String>,
 
+    /// Find the highest-level header in a page's content and treat it as header level 1.
+    /// For example, if a page has `##` but not `#` in its markdown, then `##` will be
+    /// header level 1, `###` will be header level 2, and so on.
+    ///
+    /// This can be used in conjunction with [top_header_level] force the highest level headers
+    /// to be a specific level in the HTML output.
+    ///
+    /// A common setting would be `promote_headers = true` and `top_header_level = 2` to ensure
+    /// that the top-level sections in the content will be `h2` and so on, regardless of whether
+    /// the Markdown uses `#` or `##` for its top-level section headers.
+    ///
+    /// If omitted, this defaults to `false`.
+    pub promote_headers: Option<bool>,
+
+    /// Use this header level for the highest-level heading in the HTML output.
+    /// For example, if this is 2, then header level 1 will generate an `h2`.
+    ///
+    /// This can be used in conjunction with [promote_headers] to force the highest level headers
+    /// to be specific level in the HTML output.
+    ///
+    /// A common setting would be `promote_headers = true` and `top_header_level = 2` to ensure
+    /// that the top-level sections in the content will be `h2` and so on.
+    pub top_header_level: Option<usize>,
+
     /// Convert -- to &emdash; when generating HTML.
     pub convert_emdash: Option<bool>,
 
@@ -168,6 +192,9 @@ pub struct Config {
     pub class_heading3: String,
     pub class_heading4: String,
     pub convert_emdash: bool,
+
+    pub promote_headers: bool,
+    pub top_header_level: usize,
 
     pub pic_store: Option<PicStoreConfig>,
 }
@@ -260,6 +287,8 @@ impl Config {
             class_heading3: file_cfg.class_heading3.unwrap_or_default(),
             class_heading4: file_cfg.class_heading4.unwrap_or_default(),
             convert_emdash: file_cfg.convert_emdash.unwrap_or_default(),
+            promote_headers: file_cfg.promote_headers.unwrap_or_default(),
+            top_header_level: file_cfg.top_header_level.unwrap_or(1),
             pic_store: file_cfg.pic_store,
         };
 

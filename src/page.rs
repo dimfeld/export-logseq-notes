@@ -56,6 +56,7 @@ pub struct Page<'a> {
     pub base_dir: &'a Path,
     pub path: PathBuf,
     pub config: &'a Config,
+    pub heading_delta: isize,
     pub pages_by_title: &'a HashMap<String, IdSlugUid>,
     pub pages_by_filename_title: &'a HashMap<String, String>,
     pub pages_by_id: &'a HashMap<usize, TitleSlugUid>,
@@ -583,7 +584,13 @@ impl<'a> Page<'a> {
 
     fn render_line(&'a self, block: &'a Block) -> Result<(StringBuilder<'a>, bool)> {
         self.render_line_without_header(block).map(|result| {
-            let (element, class) = match block.heading {
+            let heading_level = if block.heading > 0 {
+                std::cmp::max(1, block.heading as isize + self.heading_delta)
+            } else {
+                0
+            };
+
+            let (element, class) = match heading_level {
                 1 => ("h1", self.config.class_heading1.as_str()),
                 2 => ("h2", self.config.class_heading2.as_str()),
                 3 => ("h3", self.config.class_heading3.as_str()),

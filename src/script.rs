@@ -12,6 +12,7 @@ use rhai::{
 use smallvec::smallvec;
 
 use crate::{
+    config::Config,
     content::BlockContent,
     graph::{AttrList, Block, BlockInclude, ParsedPage, ViewType},
     make_pages::title_to_slug,
@@ -80,6 +81,7 @@ pub struct PageConfig {
 
     pub include: bool,
     pub allow_embedding: AllowEmbed,
+    pub top_header_level: usize,
 
     pub root_block: usize,
 }
@@ -398,6 +400,16 @@ pub mod rhai_page {
         page.include = value;
     }
 
+    #[rhai_fn(get = "top_header_level", pure)]
+    pub fn get_top_header_level(page: &mut Page) -> usize {
+        page.top_header_level
+    }
+
+    #[rhai_fn(set = "top_header_level")]
+    pub fn set_top_header_level(page: &mut Page, value: i64) {
+        page.top_header_level = value as usize;
+    }
+
     #[rhai_fn(global)]
     pub fn add_tag(page: &mut Page, value: String) {
         if !page.tags.contains(&value) {
@@ -657,6 +669,7 @@ def_package! {
 pub fn run_script_on_page(
     package: &ParsePackage,
     ast: &AST,
+    global_config: &Config,
     page: ParsedPage,
 ) -> Result<(PageConfig, ParsedPage)> {
     let mut engine = Engine::new_raw();
@@ -690,6 +703,7 @@ pub fn run_script_on_page(
         attrs: page_block.attrs.clone(),
         tags: page_block.tags.clone(),
         allow_embedding: AllowEmbed::Default,
+        top_header_level: global_config.top_header_level,
         root_block: page.root_block,
     };
 
