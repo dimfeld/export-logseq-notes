@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::{
     config::{Config, PkmProduct},
-    graph::{Graph, ParsedPage},
+    graph::{BlockInclude, Graph, ParsedPage},
     image::{image_full_path, Images},
     logseq::db::MetadataDb,
     page::{IdSlugUid, ManifestItem, Page, TitleSlugUid},
@@ -109,6 +109,7 @@ struct ProcessedPage {
     config: PageConfig,
     blocks: ParsedPage,
     notable: ExpressionContents,
+    heading_delta: isize,
     slug: String,
 }
 
@@ -138,7 +139,8 @@ pub fn make_pages_from_script(
         .into_iter()
         .map(|parsed_page| {
             let (page_config, page_blocks) =
-                run_script_on_page(&package, &ast, parsed_page).wrap_err("Running script")?;
+                run_script_on_page(&package, &ast, &global_config, parsed_page)
+                    .wrap_err("Running script")?;
 
             let slug = create_path(
                 page_config.url_base.as_str(),
@@ -157,8 +159,35 @@ pub fn make_pages_from_script(
                 page_blocks.root_block,
             );
 
+            let h_element_delta = (page_config.top_header_level as isize) - 1;
+            let markdown_heading_delta = if global_config.promote_headers {
+                let lowest_heading = page_blocks
+                    .blocks
+                    .iter()
+                    .filter(|(_, block)| {
+                        if block.heading == 0 {
+                            return false;
+                        }
+
+                        match block.include_type {
+                            BlockInclude::JustBlock => true,
+                            BlockInclude::AndChildren => true,
+                            BlockInclude::OnlyChildren => false,
+                            BlockInclude::Exclude => false,
+                            BlockInclude::IfChildrenPresent => !block.children.is_empty(),
+                        }
+                    })
+                    .map(|(_, block)| block.heading)
+                    .min()
+                    .unwrap_or(1) as isize;
+                lowest_heading - 1
+            } else {
+                0
+            };
+
             Ok::<_, eyre::Report>(ProcessedPage {
                 config: page_config,
+                heading_delta: h_element_delta - markdown_heading_delta,
                 blocks: page_blocks,
                 notable,
                 slug,
@@ -342,6 +371,7 @@ pub fn make_pages_from_script(
                  config,
                  blocks,
                  slug,
+                 heading_delta,
                  ..
              }| {
                 if !config.include {
@@ -382,6 +412,7 @@ pub fn make_pages_from_script(
                     handlebars: &handlebars,
                     picture_template_key,
                     image_info: &image_info,
+                    heading_delta,
                 };
 
                 let block = graph.blocks.get(&page.id).unwrap();
