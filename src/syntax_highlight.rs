@@ -1,7 +1,5 @@
 use eyre::Result;
-use syntect::html;
-use syntect::parsing::SyntaxSet;
-use syntect::util::LinesWithEndings;
+use syntect::{html, parsing::SyntaxSet, util::LinesWithEndings};
 
 pub struct Highlighter {
     syntax_set: SyntaxSet,
@@ -10,15 +8,14 @@ pub struct Highlighter {
 
 impl Highlighter {
     pub fn new(class_prefix: Option<&'static str>) -> Highlighter {
-        let mut ss = SyntaxSet::load_defaults_newlines().into_builder();
-        ss.add_plain_text_syntax();
+        let ss = two_face::syntax::extra_newlines();
 
         let class_style = class_prefix
             .map(|p| html::ClassStyle::SpacedPrefixed { prefix: p })
             .unwrap_or(html::ClassStyle::Spaced);
 
         Highlighter {
-            syntax_set: ss.build(),
+            syntax_set: ss,
             class_style,
         }
     }
