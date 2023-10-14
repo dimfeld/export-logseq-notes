@@ -434,6 +434,7 @@ pub fn graph_from_roam_edn(path: &str) -> Result<(ContentStyle, bool, Vec<Parsed
             contents: BlockContent::new_parsed(ContentStyle::Roam, roam_block.string.clone())?,
             heading: roam_block.heading,
             view_type,
+            this_block_list_type: crate::graph::ListType::Default,
         };
 
         blocks.push(block);
