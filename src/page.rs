@@ -13,7 +13,7 @@ use urlencoding::encode;
 
 use crate::{
     config::Config,
-    graph::{Block, BlockInclude, Graph, ViewType},
+    graph::{Block, BlockInclude, Graph, ListType, ViewType},
     html,
     image::{image_full_path, ImageInfo},
     parse_string::{parse, Expression},
@@ -635,14 +635,30 @@ impl<'a> Page<'a> {
 
         let increase_depth = block.include_type != BlockInclude::OnlyChildren;
         let render_children = render_children && !block.children.is_empty();
+
+        // This doesn't completely match the Logseq behavior, which allows co-mingling of ordered
+        // and unordered lists in the children of a single block.
+        let has_numbered_list_child = render_child_container
+            .then(|| {
+                block.children.iter().any(|c| {
+                    self.graph
+                        .blocks
+                        .get(&c)
+                        .map(|b| b.this_block_list_type == ListType::Number)
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
         let view_type = block.view_type.resolve_with_parent(inherited_view_type);
 
-        let child_container = match (render_child_container, view_type) {
-            (false, _) => None,
-            (true, ViewType::Document) => None,
-            (true, ViewType::Bullet) => Some(("<ul class=\"list-bullet\">\n", "</ul>")),
-            (true, ViewType::Numbered) => Some(("<ol class=\"list-bullet\">\n", "</ol>")),
-            (true, ViewType::Inherit) => panic!("ViewType should never resolve to Inherit"),
+        let child_container = match (render_child_container, has_numbered_list_child, view_type) {
+            (false, _, _) => None,
+            (true, false, ViewType::Document) => None,
+            (true, false, ViewType::Bullet) => Some(("<ul class=\"list-bullet\">\n", "</ul>")),
+            (true, true, _) | (true, false, ViewType::Numbered) => {
+                Some(("<ol class=\"list-bullet\">\n", "</ol>"))
+            }
+            (true, false, ViewType::Inherit) => panic!("ViewType should never resolve to Inherit"),
         };
 
         if block.edit_time > self.latest_found_edit_time.get() {

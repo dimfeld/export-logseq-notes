@@ -14,6 +14,13 @@ pub enum ViewType {
     Document,
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum ListType {
+    #[default]
+    Default,
+    Number,
+}
+
 impl<T> From<T> for ViewType
 where
     for<'a> T: AsRef<str>,
@@ -81,6 +88,7 @@ pub struct Block {
     pub contents: BlockContent,
     pub heading: usize,
     pub view_type: ViewType,
+    pub this_block_list_type: ListType,
 
     pub edit_time: u64,
     pub create_time: u64,

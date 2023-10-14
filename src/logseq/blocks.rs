@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use super::{attrs::parse_attr_line, LinesIterator};
 use crate::{
     content::BlockContent,
-    graph::{AttrList, ViewType},
+    graph::{AttrList, ListType, ViewType},
     parse_string::{self, Expression},
 };
 
@@ -36,6 +36,7 @@ pub struct LogseqRawBlock {
     pub header_level: u32,
     pub contents: BlockContent,
     pub view_type: ViewType,
+    pub this_block_list_type: ListType,
     pub collapsed: bool,
     pub indent: u32,
     pub tags: AttrList,
@@ -89,6 +90,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
     let mut indent = 0;
     let mut id = String::new();
     let mut view_type = ViewType::Inherit;
+    let mut this_block_list_type = ListType::Default;
     let mut header = 0;
     let mut collapsed = false;
     let mut attrs = HashMap::default();
@@ -157,6 +159,11 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
                             .pop()
                             .map(ViewType::from)
                             .unwrap_or_default();
+                    } else if parsed.attr_name == "logseq.order-list-type" {
+                        let value = parsed.attr_values.pop().unwrap_or_default();
+                        if value == "number" {
+                            this_block_list_type = ListType::Number;
+                        }
                     } else if parsed.attr_name == "collapsed" {
                         collapsed = parsed.attr_values.pop().unwrap_or_default() == "true";
                     } else {
@@ -197,6 +204,7 @@ fn read_raw_block(lines: &mut LinesIterator<impl BufRead>) -> Result<RawBlockOut
         // The caller will figure this out.
         parent_idx: None,
         view_type,
+        this_block_list_type,
         collapsed,
         indent,
         contents: parsed,
