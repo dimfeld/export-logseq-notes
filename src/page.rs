@@ -160,6 +160,7 @@ impl<'a> Page<'a> {
         &'a self,
         containing_block: &'a Block,
         s: &'a str,
+        first: bool,
     ) -> Result<(StringBuilder<'a>, bool, bool)> {
         let block = self.graph.block_from_uid(s);
         match block {
@@ -193,7 +194,7 @@ impl<'a> Page<'a> {
                 parse(self.graph.content_style, s)
                     .map_err(|e| eyre!("Parse Error: {}", e))
                     .and_then(|expressions| {
-                        self.render_expressions(containing_block, &expressions, false)
+                        self.render_expressions(containing_block, &expressions, first, false)
                     })
                     .map(|(sb, render_children)| (sb, true, render_children))
             }
@@ -356,23 +357,25 @@ impl<'a> Page<'a> {
     where
         'a: 'ex,
     {
-        self.render_expressions(block, e, false).map(|(s, rc)| {
-            (
-                StringBuilder::Vec(vec![
-                    render_opening_tag(tag, class).into(),
-                    s,
-                    format!("</{tag}>").into(),
-                ]),
-                true,
-                rc,
-            )
-        })
+        self.render_expressions(block, e, false, false)
+            .map(|(s, rc)| {
+                (
+                    StringBuilder::Vec(vec![
+                        render_opening_tag(tag, class).into(),
+                        s,
+                        format!("</{tag}>").into(),
+                    ]),
+                    true,
+                    rc,
+                )
+            })
     }
 
     fn render_expressions<'exs>(
         &'a self,
         block: &'a Block,
         e: &'exs [Expression<'a>],
+        first: bool,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool)>
     where
@@ -380,7 +383,8 @@ impl<'a> Page<'a> {
     {
         let num_exprs = e.len();
         e.iter()
-            .map(|e| self.render_expression(block, e, omit_unexported_links))
+            .enumerate()
+            .map(|(i, e)| self.render_expression(block, e, first && i == 0, omit_unexported_links))
             .fold(
                 Ok((StringBuilder::with_capacity(num_exprs), false, true)),
                 |acc, r| {
@@ -408,6 +412,7 @@ impl<'a> Page<'a> {
         block: &'a Block,
         name: &'a str,
         contents: &'ex [Expression<'a>],
+        first: bool,
     ) -> Result<(StringBuilder, bool, bool)>
     where
         'a: 'ex,
@@ -416,10 +421,10 @@ impl<'a> Page<'a> {
             return Ok((StringBuilder::Empty, false, true));
         }
 
-        self.render_expressions(block, contents, false)
+        self.render_expressions(block, contents, false, false)
             .map(|(s, rc)| {
                 let output = StringBuilder::Vec(vec![
-                    "<span>".into(),
+                    if first { "<span>" } else { "<br /><span>" }.into(),
                     // Attr name
                     render_opening_tag("span", self.config.class_attr_name.as_str()).into(),
                     self.render_plain_text(name).into(),
@@ -438,6 +443,7 @@ impl<'a> Page<'a> {
         &'a self,
         block: &'a Block,
         e: &'ex Expression<'a>,
+        first: bool,
         omit_unexported_links: bool,
     ) -> Result<(StringBuilder<'a>, bool, bool)>
     where
@@ -514,7 +520,7 @@ impl<'a> Page<'a> {
                 e,
             )?,
             Expression::Text(s) => (self.render_text(s).into(), true, true),
-            Expression::BlockRef(s) => self.render_block_ref(block, s)?,
+            Expression::BlockRef(s) => self.render_block_ref(block, s, first)?,
             Expression::BraceDirective(s) => self.render_brace_directive(block, s),
             Expression::Table => (self.render_table(block), true, false),
             Expression::HRule => {
@@ -561,7 +567,9 @@ impl<'a> Page<'a> {
                     .unwrap_or(Ok(StringBuilder::Empty))?;
                 (result, true, true)
             }
-            Expression::Attribute { name, value } => self.render_attribute(block, name, value)?,
+            Expression::Attribute { name, value } => {
+                self.render_attribute(block, name, value, first)?
+            }
         };
 
         Ok(rendered)
@@ -578,7 +586,7 @@ impl<'a> Page<'a> {
                 _ => false,
             });
 
-        self.render_expressions(block, parsed, filter_links)
+        self.render_expressions(block, parsed, true, filter_links)
             .map(|(strings, render_children)| (strings, render_children))
     }
 

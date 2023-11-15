@@ -275,8 +275,8 @@ fn attribute_simple() {
 #[test]
 fn attribute_nospace() {
     let input = "Source::some blog";
-    test_parse_all_styles(
-        input,
+    assert_eq!(
+        parse(ContentStyle::Roam, input).unwrap(),
         vec![Expression::Attribute {
             name: "Source",
             value: vec![Expression::Text("some blog")],
@@ -285,10 +285,10 @@ fn attribute_nospace() {
 }
 
 #[test]
-fn attribute_complex() {
+fn roam_attribute_complex() {
     let input = " My Score:: too [[high]] to count";
-    test_parse_all_styles(
-        input,
+    assert_eq!(
+        parse(ContentStyle::Roam, input).unwrap(),
         vec![Expression::Attribute {
             name: " My Score",
             value: vec![
@@ -301,10 +301,10 @@ fn attribute_complex() {
 }
 
 #[test]
-fn attribute_extra_colons() {
+fn roam_attribute_extra_colons() {
     let input = " My Score::: too :: high :: to count";
-    test_parse_all_styles(
-        input,
+    assert_eq!(
+        parse(ContentStyle::Roam, input).unwrap(),
         vec![Expression::Attribute {
             name: " My Score",
             value: vec![Expression::Text(": too :: high :: to count")],
@@ -313,11 +313,44 @@ fn attribute_extra_colons() {
 }
 
 #[test]
-fn attribute_backticks_1() {
+fn isolated_attribute() {
+    let input = "completed:: true";
+    assert_eq!(
+        attribute(ContentStyle::Logseq, input).unwrap(),
+        ("", ("completed", vec![Expression::Text("true")],)),
+    )
+}
+
+#[test]
+fn logseq_attribute_and_text_in_block() {
+    let input = "Some text\n   completed:: true";
+    assert_eq!(
+        parse(ContentStyle::Logseq, input).unwrap(),
+        vec![
+            Expression::Text("Some text"),
+            Expression::Attribute {
+                name: "completed",
+                value: vec![Expression::Text("true")],
+            },
+        ],
+    )
+}
+
+#[test]
+fn logseq_colons_in_attribute_value() {
+    let input = "completed:: true:: false";
+    assert_eq!(
+        attribute(ContentStyle::Logseq, input).unwrap(),
+        ("", ("completed", vec![Expression::Text("true:: false")],)),
+    )
+}
+
+#[test]
+fn roam_attribute_backticks_1() {
     // Do not parse it as an attribute if the :: is inside backticks
     let input = " My Score ` :: too [[high]] to count`";
-    test_parse_all_styles(
-        input,
+    assert_eq!(
+        parse(ContentStyle::Roam, input).unwrap(),
         vec![
             Expression::Text(" My Score "),
             Expression::SingleBacktick(" :: too [[high]] to count"),
@@ -326,12 +359,12 @@ fn attribute_backticks_1() {
 }
 
 #[test]
-fn attribute_backticks_2() {
+fn roam_attribute_backticks_2() {
     // This feels weird but it matches Roam's behavior.
     // Understandable since it's difficult to parse otherwise
     let input = "My `Score`:: too [[high]] to count";
-    test_parse_all_styles(
-        input,
+    assert_eq!(
+        parse(ContentStyle::Roam, input).unwrap(),
         vec![
             Expression::Text("My "),
             Expression::SingleBacktick("Score"),

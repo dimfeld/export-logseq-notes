@@ -146,7 +146,7 @@ fn style<'a>(
     boundary: &'a str,
 ) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<Expression<'a>>> {
     map_parser(fenced(boundary, boundary), move |i| {
-        parse_inline(content_style, i)
+        parse_inline(content_style, false, i)
     })
 }
 
@@ -320,7 +320,11 @@ fn raw_url(input: &str) -> IResult<&str, &str> {
     }
 }
 
-fn directive(content_style: ContentStyle, input: &str) -> IResult<&str, Expression> {
+fn directive(
+    content_style: ContentStyle,
+    allow_attribute: bool,
+    input: &str,
+) -> IResult<&str, Expression> {
     alt((
         map(triple_backtick, Expression::TripleBacktick),
         map(single_backtick, Expression::SingleBacktick),
@@ -370,11 +374,25 @@ fn directive(content_style: ContentStyle, input: &str) -> IResult<&str, Expressi
         map(|i| highlight(content_style, i), Expression::Highlight),
         map(latex, Expression::Latex),
         map(raw_url, Expression::RawHyperlink),
+        map_opt(
+            cond(
+                allow_attribute,
+                map(
+                    |i| attribute(content_style, i),
+                    |(name, value)| Expression::Attribute { name, value },
+                ),
+            ),
+            |r| r,
+        ),
     ))(input)
 }
 
 /// Parse a line of text, counting anything that doesn't match a directive as plain text.
-fn parse_inline(style: ContentStyle, input: &str) -> IResult<&str, Vec<Expression>> {
+fn parse_inline(
+    style: ContentStyle,
+    in_attribute: bool,
+    input: &str,
+) -> IResult<&str, Vec<Expression>> {
     let mut output = Vec::with_capacity(4);
 
     let mut current_input = input;
@@ -383,7 +401,7 @@ fn parse_inline(style: ContentStyle, input: &str) -> IResult<&str, Vec<Expressio
         let mut found_directive = false;
         for (current_index, _) in current_input.char_indices() {
             // println!("{} {}", current_index, current_input);
-            match directive(style, &current_input[current_index..]) {
+            match directive(style, in_attribute, &current_input[current_index..]) {
                 Ok((remaining, parsed)) => {
                     // println!("Matched {:?} remaining {}", parsed, remaining);
                     let leading_text = &current_input[0..current_index];
@@ -419,11 +437,21 @@ fn parse_inline(style: ContentStyle, input: &str) -> IResult<&str, Vec<Expressio
 /// Parses `Name:: Arbitrary [[text]]`
 pub fn attribute(style: ContentStyle, input: &str) -> IResult<&str, (&str, Vec<Expression>)> {
     // Roam doesn't trim whitespace on the attribute name, so we don't either.
-    separated_pair(
-        is_not(":`"),
-        tag("::"),
-        preceded(multispace0, |i| parse_inline(style, i)),
-    )(input)
+    match style {
+        ContentStyle::Roam => separated_pair(
+            is_not(":`"),
+            tag("::"),
+            preceded(multispace0, |i| parse_inline(style, false, i)),
+        )(input),
+        ContentStyle::Logseq => separated_pair(
+            preceded(
+                multispace0,
+                take_while1(|c| nonws_char(c) && c != ',' && c != ':'),
+            ),
+            tag(":: "),
+            preceded(multispace0, |i| parse_inline(style, false, i)),
+        )(input),
+    }
 }
 
 fn logseq_todo(input: &str) -> IResult<&str, Expression> {
@@ -443,18 +471,26 @@ pub fn parse<'a>(
     alt((
         map(all_consuming(tag("---")), |_| vec![Expression::HRule]),
         map(
-            all_consuming(preceded(tag("> "), |i| parse_inline(content_style, i))),
+            all_consuming(preceded(tag("> "), |i| {
+                parse_inline(content_style, true, i)
+            })),
             |values| vec![Expression::BlockQuote(values)],
         ),
-        map(
-            all_consuming(|i| attribute(content_style, i)),
-            |(name, value)| vec![Expression::Attribute { name, value }],
+        map_opt(
+            cond(
+                content_style == ContentStyle::Roam,
+                map(
+                    all_consuming(|i| attribute(content_style, i)),
+                    |(name, value)| vec![Expression::Attribute { name, value }],
+                ),
+            ),
+            |r| r,
         ),
         map_opt(
             cond(
                 content_style == ContentStyle::Logseq,
                 all_consuming(map(
-                    pair(logseq_todo, |i| parse_inline(content_style, i)),
+                    pair(logseq_todo, |i| parse_inline(content_style, true, i)),
                     |(todo_expr, mut exprs)| {
                         exprs.insert(0, todo_expr);
                         exprs
@@ -463,7 +499,7 @@ pub fn parse<'a>(
             ),
             |r| r,
         ),
-        all_consuming(|input| parse_inline(content_style, input)),
+        all_consuming(|input| parse_inline(content_style, true, input)),
     ))(input)
     .map(|(_, results)| results)
 }
