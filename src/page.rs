@@ -664,7 +664,7 @@ impl<'a> Page<'a> {
             (true, false, ViewType::Document) => None,
             (true, false, ViewType::Bullet) => Some(("<ul class=\"list-bullet\">\n", "</ul>")),
             (true, true, _) | (true, false, ViewType::Numbered) => {
-                Some(("<ol class=\"list-bullet\">\n", "</ol>"))
+                Some(("<ol class=\"list-numbered\">\n", "</ol>"))
             }
             (true, false, ViewType::Inherit) => panic!("ViewType should never resolve to Inherit"),
         };
@@ -682,7 +682,8 @@ impl<'a> Page<'a> {
         let parent_is_list = depth > 0 && inherited_view_type != ViewType::Document;
         // Render the li if we're in an include type that renders this block
         // if we're rendering this inside a list
-        let render_li = include_type_renders_li && parent_is_list;
+        let render_li = (include_type_renders_li && parent_is_list)
+            || block.this_block_list_type == ListType::Number;
 
         let mut result = StringBuilder::with_capacity(9);
         result.push(write_depth(depth));
