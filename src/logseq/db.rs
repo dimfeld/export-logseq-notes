@@ -140,10 +140,13 @@ impl MetadataDb {
             )
             .optional()?;
 
-        result
-            .map(|s| serde_json::from_str(&s))
+        let image = result
+            .map(|s| serde_json::from_str::<PicStoreImageData>(&s))
             .transpose()
-            .map_err(eyre::Error::from)
+            .map_err(eyre::Error::from)?
+            .map(|i| i.combine_2x());
+
+        Ok(image)
     }
 
     pub fn add_image(&self, image: &Image, data: &PicStoreImageData) -> Result<()> {

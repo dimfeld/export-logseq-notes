@@ -145,9 +145,56 @@ pub struct PicStoreImageData {
 pub struct PicStoreImageOutput {
     pub id: String,
     pub url: String,
+    pub srcset: Option<String>,
     pub status: String,
     pub file_size: Option<u32>,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub format: String,
+}
+
+impl PicStoreImageData {
+    pub fn combine_2x(mut self) -> Self {
+        let double_size_indexes = self
+            .output
+            .iter()
+            .map(|image| {
+                if image.srcset.is_some() {
+                    return String::new();
+                }
+
+                if let Some(width) = image.width {
+                    let double_width = self
+                        .output
+                        .iter()
+                        .find(|i| i.width.unwrap_or(0) == width * 2);
+                    if let Some(dw) = double_width {
+                        return dw.url.clone();
+                    }
+                }
+
+                if let Some(height) = image.height {
+                    let double_height = self
+                        .output
+                        .iter()
+                        .find(|i| i.height.unwrap_or(0) == height * 2);
+                    if let Some(dh) = double_height {
+                        return dh.url.clone();
+                    }
+                }
+
+                return String::new();
+            })
+            .collect::<Vec<_>>();
+
+        for (image, double_url) in self.output.iter_mut().zip(double_size_indexes.into_iter()) {
+            if double_url.is_empty() {
+                image.srcset = Some(image.url.clone());
+            } else {
+                image.srcset = Some(format!("{}, {} 2x", image.url, double_url));
+            }
+        }
+
+        self
+    }
 }

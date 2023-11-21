@@ -73,7 +73,17 @@ impl Images {
             // This is a new image, so add it to the CDN if necessary.
             let result = self.pic_store.get_or_upload_image(&image, upload_profile)?;
             match result {
-                GetImageResult::Exists(result) => self.db.add_image(&image, &result)?,
+                GetImageResult::Exists(result) => {
+                    self.db.add_image(&image, &result)?;
+                    let mut images = self.images.lock().unwrap();
+                    images.insert(
+                        image.path.to_string_lossy().to_string(),
+                        ImageInfo {
+                            image,
+                            data: result.combine_2x(),
+                        },
+                    );
+                }
                 GetImageResult::Uploaded(id) => {
                     let mut pending = self.pending_images.lock().unwrap();
                     pending.push((image, id));
@@ -128,7 +138,7 @@ pub fn image_full_path(base_path: &Path, origin_path: &Path, image_path: &str) -
 pub const DEFAULT_PICTURE_TEMPLATE: &str = r##"
 <picture>
 {{#each output}}
-  <source srcset="{{this.url}}" type="image/{{this.format}}" width="{{this.width}}" height="{{this.height}}" />
+  <source srcset="{{this.srcset}}" type="image/{{this.format}}" width="{{this.width}}" height="{{this.height}}" />
 {{/each}}
   <img src="{{fallback.url}}" alt="{{alt}}" width="{{fallback.width}}" height="{{fallback.height}}" />
 </picture>
