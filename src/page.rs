@@ -460,7 +460,7 @@ impl<'a> Page<'a> {
                 let done = if *done { "checked" } else { "" };
 
                 (
-                    format!(r##"<input type="checkbox" readonly="true" {done} />"##,).into(),
+                    format!(r##"<input type="checkbox" disabled {done} />"##,).into(),
                     false,
                     true,
                 )
